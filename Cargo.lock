@@ -232,33 +232,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "connect-rust-example"
+name = "cli"
 version = "0.1.0"
 dependencies = [
- "async-nats",
- "axum",
- "buffa",
- "buffa-types",
- "bytes",
- "connectrpc",
- "futures",
- "http",
- "http-body",
- "http-body-util",
- "opentelemetry",
- "opentelemetry-appender-tracing",
- "opentelemetry-http",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "serde",
- "serde_json",
+ "anyhow",
+ "contracts",
+ "kernel",
+ "platform",
  "tokio",
- "tower",
- "tower-http 0.7.1",
  "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -300,6 +282,19 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "contracts"
+version = "0.1.0"
+dependencies = [
+ "buffa",
+ "buffa-types",
+ "connectrpc",
+ "futures",
+ "http-body",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "core-foundation"
@@ -416,6 +411,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "e2e"
+version = "0.1.0"
+dependencies = [
+ "async-nats",
+ "connectrpc",
+ "contracts",
+ "kernel",
+ "platform",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -644,6 +652,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "greet"
+version = "0.1.0"
+dependencies = [
+ "connectrpc",
+ "contracts",
+ "kernel",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -677,6 +696,18 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "greet",
+ "kernel",
+ "platform",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "http"
@@ -958,6 +989,18 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kernel"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "connectrpc",
+ "futures",
+ "http",
+ "http-body",
+ "http-body-util",
 ]
 
 [[package]]
@@ -1246,6 +1289,35 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
+name = "platform"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "axum",
+ "bytes",
+ "connectrpc",
+ "futures",
+ "http",
+ "http-body",
+ "http-body-util",
+ "kernel",
+ "opentelemetry",
+ "opentelemetry-appender-tracing",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http 0.7.1",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "portable-atomic"

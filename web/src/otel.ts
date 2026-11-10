@@ -60,7 +60,8 @@ export function loadSettings(): TelemetrySettings {
     if (s) {
       const saved = { ...DEFAULT_SETTINGS, ...(JSON.parse(s) as Partial<TelemetrySettings>) }
       // The old default went straight to the collector; move it to the dev proxy.
-      if (saved.collectorUrl === 'http://localhost:4318/v1/traces') saved.collectorUrl = DEFAULT_SETTINGS.collectorUrl
+      if (saved.collectorUrl === 'http://localhost:4318/v1/traces')
+        saved.collectorUrl = DEFAULT_SETTINGS.collectorUrl
       return saved
     }
   } catch {
@@ -128,7 +129,12 @@ function toUiSpan(s: ReadableSpan): UiSpan {
       attributes: { ...(e.attributes ?? {}) },
     })),
     status: {
-      code: s.status.code === SpanStatusCode.ERROR ? 'error' : s.status.code === SpanStatusCode.OK ? 'ok' : 'unset',
+      code:
+        s.status.code === SpanStatusCode.ERROR
+          ? 'error'
+          : s.status.code === SpanStatusCode.OK
+            ? 'ok'
+            : 'unset',
       message: s.status.message,
     },
     source: 'browser',
@@ -216,7 +222,9 @@ class StatusExporter implements SpanExporter {
               state: 'error',
               at: Date.now(),
               error: `${r.error?.message ?? 'export failed'} (${settings.collectorUrl}${
-                settings.collectorUrl.startsWith('/') ? ' via the Vite dev proxy: is the collector up?' : ''
+                settings.collectorUrl.startsWith('/')
+                  ? ' via the Vite dev proxy: is the collector up?'
+                  : ''
               })`,
             },
       )
@@ -247,9 +255,12 @@ export function configureTelemetry(s: TelemetrySettings) {
   const spanProcessors: SpanProcessor[] = [new SimpleSpanProcessor(new UiExporter())]
   if (s.exportEnabled && s.collectorUrl.trim()) {
     spanProcessors.push(
-      new BatchSpanProcessor(new StatusExporter(new OTLPTraceExporter({ url: absoluteUrl(s.collectorUrl) })), {
-        scheduledDelayMillis: 200,
-      }),
+      new BatchSpanProcessor(
+        new StatusExporter(new OTLPTraceExporter({ url: absoluteUrl(s.collectorUrl) })),
+        {
+          scheduledDelayMillis: 200,
+        },
+      ),
     )
     setExportStatus({ state: 'idle' })
   } else {
@@ -294,7 +305,12 @@ export interface Started {
 }
 
 /** Start a span; without `parent` it is the root of a new trace. */
-export function startSpan(name: string, kind: SpanKind, attributes: Attributes, parent?: Context): Started {
+export function startSpan(
+  name: string,
+  kind: SpanKind,
+  attributes: Attributes,
+  parent?: Context,
+): Started {
   const base = parent ?? ROOT_CONTEXT
   const span = tracer().startSpan(name, { kind, attributes }, base)
   return { span, ctx: trace.setSpan(base, span), traceId: span.spanContext().traceId }

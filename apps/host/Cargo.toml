@@ -1,0 +1,19 @@
+[package]
+name = "host"
+description = "Box 4: composition root. The only place where services and platform meet."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+kernel.workspace = true
+platform.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# services (one line per service)
+greet.workspace = true
+
+[lints]
+workspace = true

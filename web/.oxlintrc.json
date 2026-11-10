@@ -3,6 +3,13 @@
   "plugins": ["react", "typescript", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+
+    "eslint/complexity": ["warn", { "max": 10 }],
+    "eslint/max-depth": ["warn", { "max": 3 }],
+    "eslint/max-params": ["warn", { "max": 4 }],
+    "eslint/max-nested-callbacks": ["warn", { "max": 3 }],
+    "eslint/max-lines-per-function": ["warn", { "max": 60, "skipBlankLines": true, "skipComments": true }],
+    "eslint/max-lines": ["warn", { "max": 300, "skipBlankLines": true, "skipComments": true }]
   }
 }

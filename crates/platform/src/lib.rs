@@ -1,127 +1,31 @@
-use std::net::SocketAddr;
-use std::time::Duration;
+//! Box 2: infrastructure. Exposes services over HTTP and NATS, wires telemetry,
+//! and runs a set of [`kernel::Module`]s. Knows nothing about any domain or proto.
+//!
+//! Entry points for `apps/*`:
+//! - [`init_telemetry`] — first line of every `main`.
+//! - [`run`] — serve modules on every adapter enabled by the environment.
+//! - [`select_modules`] — pick modules by `SERVICES=greet,billing`.
+//! - [`deps_from_env`] — a [`kernel::Deps`] whose channel calls other services over HTTP or NATS.
 
-use axum::http::{HeaderName, HeaderValue, Method};
-use connectrpc::ConnectRpcService;
-use tower_http::cors::{AllowOrigin, CorsLayer};
-
+mod adapter;
+mod host;
+mod http_server;
 pub mod nats;
 pub mod telemetry;
-pub use nats::{NatsConfig, NatsTransport, serve_nats};
-pub use telemetry::{
-    OtelInterceptor, RequestContextOtel, TelemetryGuard, TracingTransport, init as init_telemetry,
-};
 
-pub mod proto {
-    pub mod greet {
-        pub mod v1 {
-            include!("gen/buffa/greet.v1.rs");
-            include!("gen/connect/greet.v1.rs");
-        }
-    }
+pub use adapter::{Adapter, HttpAdapter, NatsAdapter};
+pub use host::{Modules, deps_from_env, run, select_modules};
+pub use http_server::cors;
+pub use telemetry::{TelemetryGuard, init as init_telemetry};
+
+use connectrpc::{ConnectRpcService, Router};
+
+/// The connect service with the OTEL interceptor, shared by every adapter.
+pub fn traced_service(router: Router) -> ConnectRpcService {
+    ConnectRpcService::new(router).with_interceptor(telemetry::OtelInterceptor)
 }
 
 /// Address to listen on / connect to, from env `ADDR` (default `127.0.0.1:8080`).
 pub fn addr_from_env() -> String {
     std::env::var("ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into())
-}
-
-/// CORS for browser clients (Connect, gRPC-web).
-///
-/// Allowed origins come from env `CORS_ORIGINS` (comma-separated,
-/// default `http://localhost:5173`); `*` allows any origin.
-pub fn cors() -> CorsLayer {
-    let origins = std::env::var("CORS_ORIGINS").unwrap_or_else(|_| "http://localhost:5173".into());
-    let allow_origin = if origins.trim() == "*" {
-        AllowOrigin::any()
-    } else {
-        AllowOrigin::list(
-            origins
-                .split(',')
-                .filter_map(|o| HeaderValue::from_str(o.trim()).ok()),
-        )
-    };
-    let h = HeaderName::from_static;
-    CorsLayer::new()
-        .allow_origin(allow_origin)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([
-            h("content-type"),
-            h("connect-protocol-version"),
-            h("connect-timeout-ms"),
-            h("connect-accept-encoding"),
-            h("connect-content-encoding"),
-            h("grpc-timeout"),
-            h("x-grpc-web"),
-            h("x-user-agent"),
-            h("traceparent"),
-            h("tracestate"),
-            h("baggage"),
-        ])
-        .expose_headers([
-            h("grpc-status"),
-            h("grpc-message"),
-            h("grpc-status-details-bin"),
-            h("content-encoding"),
-            h("connect-content-encoding"),
-        ])
-        .max_age(Duration::from_secs(7200))
-}
-
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
-/// Serve a connectrpc router with CORS enabled (HTTP/1.1 + HTTP/2 cleartext).
-pub async fn serve(router: connectrpc::Router, addr: SocketAddr) -> Result<(), BoxError> {
-    serve_http(traced_service(router), addr).await
-}
-
-/// The connect service with the OTEL interceptor, shared by HTTP and NATS.
-fn traced_service(router: connectrpc::Router) -> ConnectRpcService {
-    ConnectRpcService::new(router).with_interceptor(OtelInterceptor)
-}
-
-async fn serve_http(service: ConnectRpcService, addr: SocketAddr) -> Result<(), BoxError> {
-    let app = axum::Router::new().fallback_service(service).layer(cors());
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "http: listening");
-    axum::serve(listener, app).await?;
-    Ok(())
-}
-
-/// Run a router on every enabled adapter:
-/// - HTTP (Connect, gRPC, gRPC-web) on `ADDR`, unless `HTTP_DISABLED=1`
-/// - NATS micro if `NATS_URL` is set (see [`NatsConfig::from_env`])
-pub async fn run(router: connectrpc::Router) -> Result<(), BoxError> {
-    let methods: Vec<String> = router.methods().map(str::to_string).collect();
-    let service = traced_service(router);
-    let http_enabled = !matches!(
-        std::env::var("HTTP_DISABLED").as_deref(),
-        Ok("1") | Ok("true")
-    );
-    let nats_cfg = NatsConfig::from_env();
-    if !http_enabled && nats_cfg.is_none() {
-        return Err("nothing to serve: HTTP_DISABLED is set and NATS_URL is not".into());
-    }
-
-    let http = async {
-        if http_enabled {
-            serve_http(service.clone(), addr_from_env().parse()?).await
-        } else {
-            Ok(())
-        }
-    };
-    let nats = async {
-        match nats_cfg {
-            Some(cfg) => {
-                let nc = async_nats::ConnectOptions::new()
-                    .name(format!("{}-server", cfg.name))
-                    .connect(cfg.url.as_str())
-                    .await?;
-                serve_nats(service.clone(), methods, nc, cfg).await
-            }
-            None => Ok(()),
-        }
-    };
-    tokio::try_join!(http, nats)?;
-    Ok(())
 }

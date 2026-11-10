@@ -1,56 +1,35 @@
-use connect_rust_example::proto::greet::v1::{GreetRequest, GreetServiceClient};
-use connect_rust_example::{NatsTransport, TracingTransport, addr_from_env, init_telemetry};
-use connectrpc::client::{ClientConfig, ClientTransport, HttpClient};
+//! `cargo run -p cli [name]` → prints "Hello, <name>!".
+//! Calls over NATS when `NATS_URL` is set, otherwise over HTTP to `ADDR`.
+
+use contracts::proto::greet::v1::{GreetRequest, GreetServiceClient};
 use tracing::Instrument;
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
-/// Same generated client, any transport.
-async fn greet<T>(client: GreetServiceClient<T>) -> Result<(), BoxError>
-where
-    T: ClientTransport,
-    <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
-{
-    let res = client
-        .greet(GreetRequest {
-            name: "Jane".into(),
-            ..Default::default()
-        })
-        .await?;
-    let greeting = res.view().greeting.to_string();
-    tracing::info!(%greeting, "reply");
-    println!("{greeting}");
-    Ok(())
-}
-
-async fn call() -> Result<(), BoxError> {
-    // NATS_URL set: call over NATS micro; otherwise over HTTP at ADDR.
-    if let Ok(url) = std::env::var("NATS_URL") {
-        let prefix = std::env::var("NATS_PREFIX").unwrap_or_else(|_| "rpc".into());
-        let nc = async_nats::connect(url).await?;
-        let transport = TracingTransport(NatsTransport::new(nc, prefix));
-        // The base URI is unused by NatsTransport; only the RPC path is mapped to a subject.
-        greet(GreetServiceClient::new(
-            transport,
-            ClientConfig::new("http://nats".parse()?),
-        ))
-        .await
-    } else {
-        greet(GreetServiceClient::new(
-            TracingTransport(HttpClient::plaintext()),
-            ClientConfig::new(format!("http://{}", addr_from_env()).parse()?),
-        ))
-        .await
-    }
+async fn call(name: String) -> anyhow::Result<String> {
+    let deps = platform::deps_from_env().await?;
+    let client = GreetServiceClient::new(deps.channel(), deps.client_config());
+    let request = GreetRequest {
+        name,
+        ..Default::default()
+    };
+    let response = client.greet(request).await?;
+    Ok(response.view().greeting.to_string())
 }
 
 #[tokio::main]
-async fn main() -> Result<(), BoxError> {
-    let _telemetry = init_telemetry("greet-client");
-    let span = tracing::info_span!("client.greet", otel.kind = "internal");
-    let res = call().instrument(span.clone()).await;
-    if let Err(e) = &res {
-        span.in_scope(|| tracing::error!(error = %e, "call failed"));
+async fn main() -> anyhow::Result<()> {
+    let _telemetry = platform::init_telemetry("cli");
+    let name = std::env::args().nth(1).unwrap_or_else(|| "Jane".into());
+    let span = tracing::info_span!("cli.greet", otel.kind = "internal");
+    let result = call(name).instrument(span.clone()).await;
+    match result {
+        Ok(greeting) => {
+            span.in_scope(|| tracing::info!(%greeting, "reply"));
+            println!("{greeting}");
+            Ok(())
+        }
+        Err(e) => {
+            span.in_scope(|| tracing::error!(error = %e, "call failed"));
+            Err(e)
+        }
     }
-    res
 }

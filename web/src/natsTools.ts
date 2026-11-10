@@ -160,7 +160,12 @@ export interface ServiceSummary {
 export function groupServices(infos: MicroInfo[]): ServiceSummary[] {
   const map = new Map<string, ServiceSummary>()
   for (const i of infos) {
-    const s = map.get(i.name) ?? { name: i.name, versions: [], description: i.description, instances: [] }
+    const s = map.get(i.name) ?? {
+      name: i.name,
+      versions: [],
+      description: i.description,
+      instances: [],
+    }
     if (!s.versions.includes(i.version)) s.versions.push(i.version)
     s.instances.push(i)
     map.set(i.name, s)
@@ -171,7 +176,8 @@ export function groupServices(infos: MicroInfo[]): ServiceSummary[] {
 /** Unique endpoints of a service across its instances (by name). */
 export function serviceEndpoints(instances: MicroInfo[]): MicroEndpointInfo[] {
   const map = new Map<string, MicroEndpointInfo>()
-  for (const i of instances) for (const e of i.endpoints ?? []) if (!map.has(e.name)) map.set(e.name, e)
+  for (const i of instances)
+    for (const e of i.endpoints ?? []) if (!map.has(e.name)) map.set(e.name, e)
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -343,7 +349,9 @@ export async function natsSubscribe(
         reply: m.reply,
         headers,
         data: m.data,
-        traceId: traceIdFromTraceparent(headers.find(([k]) => k.toLowerCase() === 'traceparent')?.[1]),
+        traceId: traceIdFromTraceparent(
+          headers.find(([k]) => k.toLowerCase() === 'traceparent')?.[1],
+        ),
       })
     },
   })
@@ -388,7 +396,9 @@ export function hexDump(data: Uint8Array): string {
   for (let off = 0; off < data.length; off += 16) {
     const row = data.subarray(off, off + 16)
     const hex = [...row].map((b) => b.toString(16).padStart(2, '0')).join(' ')
-    const ascii = [...row].map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.')).join('')
+    const ascii = [...row]
+      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.'))
+      .join('')
     lines.push(`${off.toString(16).padStart(6, '0')}  ${hex.padEnd(47)}  ${ascii}`)
   }
   return lines.join('\n')

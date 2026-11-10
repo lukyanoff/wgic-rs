@@ -21,22 +21,22 @@ npm run gen   # buf generate (Rust) + descriptors for the playground + cargo fmt
 ## Run the server and client
 
 ```sh
-cargo run --bin server   # terminal 1
-cargo run --bin client   # terminal 2, prints "Hello, Jane!"
+cargo run -p host       # terminal 1: all services (SERVICES=greet runs only greet)
+cargo run -p cli        # terminal 2, prints "Hello, Jane!" (cargo run -p cli -- Bob)
 ```
 
 Both use `127.0.0.1:8080` by default. To use another address, set `ADDR`:
 
 ```sh
-ADDR=127.0.0.1:8081 cargo run --bin server
-ADDR=127.0.0.1:8081 cargo run --bin client
+ADDR=127.0.0.1:8081 cargo run -p host
+ADDR=127.0.0.1:8081 cargo run -p cli
 ```
 
 Servers allow CORS from `http://localhost:5173` by default. To change that, set
 `CORS_ORIGINS` (comma-separated, or `*`):
 
 ```sh
-CORS_ORIGINS=http://localhost:5173,https://playground.example.com cargo run --bin server
+CORS_ORIGINS=http://localhost:5173,https://playground.example.com cargo run -p host
 ```
 
 ## Web playground
@@ -65,7 +65,7 @@ cd web && npm run dev        # http://localhost:5173
 ## NATS micro
 
 Every service can also be hosted as a NATS micro service and called over NATS. No
-per-service code is needed: `src/nats.rs` bridges NATS request/reply to the
+per-service code is needed: `crates/platform/src/nats/` bridges NATS request/reply to the
 same connect router.
 
 ```sh
@@ -73,12 +73,12 @@ podman compose up -d   # or docker compose; starts NATS from nats/nats.conf
                        # 4222 clients, 9222 WebSocket, 8222 monitoring
 
 # server: HTTP on ADDR + NATS micro
-NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run --bin server
+NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run -p host
 # NATS only (e.g. extra instances; they load-balance automatically)
-HTTP_DISABLED=1 NATS_URL=nats://127.0.0.1:4222 cargo run --bin server
+HTTP_DISABLED=1 NATS_URL=nats://127.0.0.1:4222 cargo run -p host
 
 # client: the generated GreetServiceClient over NATS instead of HTTP
-NATS_URL=nats://127.0.0.1:4222 cargo run --bin client
+NATS_URL=nats://127.0.0.1:4222 cargo run -p cli
 ```
 
 Server environment variables:
@@ -87,9 +87,13 @@ Server environment variables:
 |---|---|---|
 | `NATS_URL` | (unset, so NATS is off) | NATS server URL |
 | `NATS_PREFIX` | `rpc` | Subject prefix |
-| `NATS_SERVICE_NAME` | `greet` | Micro service name. All instances share it. |
 | `NATS_SERVICE_VERSION` | crate version | Micro service version |
 | `HTTP_DISABLED` | (unset) | `1` turns the HTTP listener off |
+| `SERVICES` | `all` | Comma-separated modules to run, e.g. `greet,billing` |
+| `UPSTREAM_ADDR` | `ADDR` | Where services call other services over HTTP when `NATS_URL` is unset |
+
+Each module is its own NATS micro service, named after the module (`greet`). All
+instances running that module share the name and load-balance.
 
 **Wire format.** NATS carries Connect unary messages:
 
@@ -152,16 +156,16 @@ each trace in the browser and shows the whole thing.
 podman compose up -d   # NATS + otel-collector (4317 gRPC, 4318 HTTP) + Jaeger (http://localhost:16686)
 
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_BSP_SCHEDULE_DELAY=200 \
-  NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run --bin server
-OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 ADDR=127.0.0.1:8081 cargo run --bin client
+  NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run -p host
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 ADDR=127.0.0.1:8081 cargo run -p cli
 ```
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | (unset, so no export) | OTLP/HTTP collector. When it is unset, spans still get IDs, so logs stay correlated. |
-| `OTEL_SERVICE_NAME` | `greet-server` / `greet-client` | `service.name` |
+| `OTEL_SERVICE_NAME` | `host` / `cli` | `service.name` |
 | `OTEL_BSP_SCHEDULE_DELAY` | `5000` | Batch export delay in ms. Use a low value so the playground sees server spans quickly. |
-| `RUST_LOG` | `info` | Log filter, e.g. `info,connect_rust_example=debug` |
+| `RUST_LOG` | `info` | Log filter, e.g. `info,platform=debug` |
 
 **Logs.** One JSON object per line on stdout. Each log is also an OTLP log
 record (the collector prints them: `podman compose logs -f otel-collector`)
@@ -184,15 +188,15 @@ NATS:  client span → send <subject> (producer) → process <subject> (consumer
 `rpc.content_type` and, on failure, `rpc.connect_rpc.error_code`. It also logs
 `rpc finished` / `rpc failed` with `duration_ms`.
 
-**In code** (`src/telemetry.rs`):
+**In code** (`crates/platform/src/telemetry/`):
 
-- `init_telemetry("name")` at the top of `main`. Keep the guard: it flushes on drop.
-- Servers get `OtelInterceptor` automatically through `run()` / `serve()`. Handlers run
+- `platform::init_telemetry("name")` at the top of `main`. Keep the guard: it flushes on drop.
+- Servers get `OtelInterceptor` automatically through `platform::run()`. Handlers run
   inside the `rpc.server` span, so `tracing::info!(…)` is correlated. The span's OTEL
   context is part of the request context:
-  `use connect_rust_example::RequestContextOtel;` then `ctx.otel()`, `ctx.trace_id()`
-  and `ctx.transport()`.
-- Clients: wrap any transport in `TracingTransport(…)`, e.g.
+  `kernel::RequestContextExt` gives `ctx.transport()`; infrastructure code can use
+  `platform::telemetry::RequestContextOtel` for `ctx.otel()` / `ctx.trace_id()`.
+- Clients: `platform::deps_from_env()` already traces calls. Manually, wrap any transport in `TracingTransport(…)`, e.g.
   `TracingTransport(HttpClient::plaintext())` or `TracingTransport(NatsTransport::new(nc, "rpc"))`.
 
 **Playground.**
@@ -223,13 +227,21 @@ NATS:  client span → send <subject> (producer) → process <subject> (consumer
 
 ## Add a new service
 
-1. Add `foo/v1/foo.proto`, then run `npm run gen`.
-2. Include the generated files in `src/lib.rs`, next to `greet::v1`.
-3. Implement the generated `FooService` trait.
-4. In a server binary: `run(Router::new().add_service(Arc::new(MyFoo))).await`.
-   That serves it over HTTP (`ADDR`) and NATS (`NATS_URL`). To run more
-   instances, start more processes.
-5. The playground lists it after a page reload.
+Services follow the Cognitive Boxes layout (see `CLAUDE.md`). Copy `services/greet/`:
+
+1. Add `proto/foo/v1/foo.proto`, run `npm run gen`, and add a `pub mod foo` block in
+   `crates/contracts/src/lib.rs`.
+2. Create `services/foo/` with the same files as `services/greet/`: `domain.rs` (rules),
+   `domain_tests.rs` (unit tests), `handler.rs` (implements the generated `FooService`), `lib.rs`
+   (`pub fn module(&Deps) -> Arc<dyn Module>`), `tests/rpc.rs` (integration), `CLAUDE.md`.
+3. Register it: `foo = { path = "services/foo" }` in the root `[workspace.dependencies]`,
+   `foo.workspace = true` in `apps/host/Cargo.toml`, and `foo::module(deps)` in
+   `all_modules()` in `apps/host/src/main.rs`.
+4. Add `tests/e2e/tests/foo.rs` (HTTP + NATS).
+5. Run `scripts/verify.sh`. `scripts/check-boxes.sh` fails if any of the steps above is missing.
+
+The host serves it over HTTP (`ADDR`) and NATS (`NATS_URL`). `SERVICES=foo` runs it alone. To
+run more instances, start more processes. The playground lists it after a page reload.
 
 ## Call it from the command line
 
@@ -256,15 +268,22 @@ Buf Studio is a hosted playground from Buf: https://buf.build/studio
 
 ## Layout
 
-- `greet/v1/greet.proto`: the service definition
-- `buf.yaml`: Buf module and lint settings
-- `buf.gen.yaml`: Rust code generation plugins
-- `src/lib.rs`: generated code (`proto::...`), plus `run()` (HTTP + NATS), `serve()` (HTTP with CORS) and `addr_from_env()`
-- `src/nats.rs`: the NATS micro adapter (`serve_nats`) and the client transport (`NatsTransport`)
-- `src/telemetry.rs`: OTEL + JSON logging (`init`), `OtelInterceptor`, `TracingTransport`, `RequestContextOtel`, HTTP/NATS propagation
+Cognitive Boxes: every box has a `CLAUDE.md` describing what it owns and what it may import.
+`scripts/check-boxes.sh` enforces the dependency rules.
+
+- `proto/greet/v1/greet.proto`: the service definition
+- `buf.yaml`, `buf.gen.yaml`: Buf module, lint settings and code generation plugins
+- `crates/contracts`: generated code (`contracts::proto::...`)
+- `crates/kernel`: what services see: `Module`, `Deps`, `Channel`, `Transport`
+- `crates/platform`: infrastructure: `run()` (HTTP + NATS), CORS, `nats/` (micro adapter and
+  `NatsTransport`), `telemetry/` (OTEL + JSON logs, `OtelInterceptor`, `TracingTransport`)
+- `services/greet`: the greet service (domain, handler, tests)
+- `apps/host`: the server binary (`SERVICES=...`); `apps/cli`: the example client
+- `tests/e2e`: end-to-end tests against the real `host` binary (needs `podman compose up -d`)
+- `scripts/verify.sh`: definition of done (fmt, clippy, boxes, buf lint, all tests, web)
+- `.claude/`: project hooks (format on edit, verify on stop) and the `simple-code` skill
 - `compose.yaml`, `nats/nats.conf`: NATS with WebSocket and monitoring, plus nats-box (profile `tools`)
 - `otel/collector.yaml`: OTEL Collector (OTLP in, traces to Jaeger, logs to its stdout)
-- `src/bin/server.rs`, `src/bin/client.rs`: the example server and client
 - `web/`: the React playground
   - `src/schema.ts`: loads the descriptors
   - `src/call.ts`: dynamic calls

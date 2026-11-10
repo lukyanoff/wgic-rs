@@ -1,40 +1,32 @@
-use std::sync::Arc;
+//! Proto ⇄ domain. Keep this thin: decode, call the domain, encode.
 
-use connect_rust_example::proto::greet::v1::{GreetRequest, GreetResponse, GreetService};
-use connect_rust_example::{RequestContextOtel, init_telemetry, run};
-use connectrpc::{RequestContext, Response, Router, ServiceRequest, ServiceResult};
+use connectrpc::{
+    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
+};
+use contracts::proto::greet::v1::{GreetRequest, GreetResponse, GreetService};
+use kernel::RequestContextExt;
 
-struct GreetServer;
+use crate::domain::{self, GreetError};
+
+pub struct GreetHandler;
 
 #[allow(refining_impl_trait)]
-impl GreetService for GreetServer {
+impl GreetService for GreetHandler {
     async fn greet(
         &self,
         ctx: RequestContext,
         request: ServiceRequest<'_, GreetRequest>,
     ) -> ServiceResult<GreetResponse> {
-        // Runs inside the rpc.server span: this log carries trace_id/span_id and is
-        // attached to the span as an event. `ctx.otel()` is the span's OTEL context.
-        tracing::info!(
-            name = %request.name,
-            transport = ctx.transport().name(),
-            trace_id = ctx.trace_id().unwrap_or_default(),
-            "greeting"
-        );
+        // Logs here carry trace_id/span_id automatically (we run inside the rpc.server span).
+        tracing::info!(name = %request.name, transport = ctx.transport().name(), "greeting");
+        let greeting = domain::greeting(request.name).map_err(to_connect_error)?;
         Response::ok(GreetResponse {
-            greeting: format!("Hello, {}!", request.name),
+            greeting,
             ..Default::default()
         })
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _telemetry = init_telemetry("greet-server");
-    let router = Router::new().add_service(Arc::new(GreetServer));
-    if let Err(e) = run(router).await {
-        tracing::error!(error = %e, "server stopped");
-        return Err(e);
-    }
-    Ok(())
+fn to_connect_error(error: GreetError) -> ConnectError {
+    ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
 }

@@ -10,7 +10,15 @@ import {
 import { ConnectError, type Interceptor, type Transport } from '@connectrpc/connect'
 import { createConnectTransport, createGrpcWebTransport } from '@connectrpc/connect-web'
 import { natsFetch } from './nats'
-import { endSpan, extractContext, flushSpans, isPropagationHeader, SpanKind, startSpan, traceHeaders } from './otel'
+import {
+  endSpan,
+  extractContext,
+  flushSpans,
+  isPropagationHeader,
+  SpanKind,
+  startSpan,
+  traceHeaders,
+} from './otel'
 import { DEFAULT_NATS_PREFIX, type ServerEntry } from './servers'
 
 export type Protocol = 'connect-json' | 'connect-binary' | 'grpc-web'
@@ -41,7 +49,8 @@ export interface CallResult {
 function makeTransport(server: ServerEntry, protocol: Protocol, registry: Registry): Transport {
   const jsonOptions = { registry }
   if (server.mode === 'nats') {
-    if (protocol === 'grpc-web') throw new ConnectError('gRPC-web is not available over NATS; use Connect')
+    if (protocol === 'grpc-web')
+      throw new ConnectError('gRPC-web is not available over NATS; use Connect')
     return createConnectTransport({
       // Unused by natsFetch except for the RPC path, which becomes the subject.
       baseUrl: 'http://nats',
@@ -150,7 +159,13 @@ async function doCall(
     }
     const transport = makeTransport(o.server, o.protocol, o.registry)
     if (method.methodKind === 'unary') {
-      const res = await transport.unary(method as DescMethodUnary, o.signal, o.timeoutMs, o.headers, input)
+      const res = await transport.unary(
+        method as DescMethodUnary,
+        o.signal,
+        o.timeoutMs,
+        o.headers,
+        input,
+      )
       onMessage(toOut(res.message))
       return {
         ok: true,
@@ -202,9 +217,22 @@ async function doCall(
 }
 
 const CODE_NAMES = [
-  'ok', 'canceled', 'unknown', 'invalid_argument', 'deadline_exceeded', 'not_found',
-  'already_exists', 'permission_denied', 'resource_exhausted', 'failed_precondition',
-  'aborted', 'out_of_range', 'unimplemented', 'internal', 'unavailable', 'data_loss',
+  'ok',
+  'canceled',
+  'unknown',
+  'invalid_argument',
+  'deadline_exceeded',
+  'not_found',
+  'already_exists',
+  'permission_denied',
+  'resource_exhausted',
+  'failed_precondition',
+  'aborted',
+  'out_of_range',
+  'unimplemented',
+  'internal',
+  'unavailable',
+  'data_loss',
   'unauthenticated',
 ]
 

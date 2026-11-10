@@ -1,0 +1,55 @@
+# connect-rust-example — Cognitive Boxes
+
+Rust Connect/gRPC services that also run over NATS micro, plus a React playground (`web/`).
+The goal of the layout is **low cognitive depth**: you can change one box without reading the others.
+
+## Boxes (dependency arrows point down only)
+
+| Box | Path | Owns | May depend on |
+|---|---|---|---|
+| 0 contracts | `proto/`, `crates/contracts` | `.proto` + generated code | — |
+| 1 kernel | `crates/kernel` | `Module`, `Deps`, `Channel`, `Transport` | — |
+| 2 platform | `crates/platform` | HTTP + NATS adapters, telemetry, host runner | kernel |
+| 3 services | `services/<name>` | one service: domain rules + handler | contracts, kernel |
+| 4 apps | `apps/host`, `apps/cli` | wiring (composition root), CLI | anything |
+| 5 e2e | `tests/e2e` | black-box tests against the real `host` binary | contracts, kernel, platform |
+
+`scripts/check-boxes.sh` enforces these arrows. Each box has its own `CLAUDE.md`: read only the one for the box you work in.
+
+## Rules
+
+1. **Stay in one box per change.** A service change touches `services/<name>/` (and its proto / e2e file). An infrastructure change touches `crates/platform/` only. `apps/host` changes only to add a service line.
+2. **Services never import `platform` or another service.** To call another service: its generated client + `Deps` (`XClient::new(deps.channel(), deps.client_config())`).
+3. **Every service has 3 test layers**: unit (`src/domain_tests.rs`), integration (`services/<name>/tests/*.rs`, in-process via `Deps::in_process`), e2e (`tests/e2e/tests/<name>.rs`, HTTP **and** NATS).
+4. **Write simple code** — use the `simple-code` skill for every code change. Readers are C#/Python/TS developers.
+5. **Tests and code live in separate files.** `foo.rs` ends with
+   `#[cfg(test)] #[path = "foo_tests.rs"] mod tests;` and the tests go in `foo_tests.rs` (next to it,
+   starting with `use super::*;`). No inline `mod tests { ... }` (checked by `check-boxes.sh`).
+6. **Generated code is never edited by hand** (`crates/contracts/src/gen/`). Change `.proto`, run `npm run gen`.
+
+## Commands
+
+```sh
+podman compose up -d              # NATS + OTel collector + Jaeger (needed by e2e)
+scripts/verify.sh                 # definition of done: fmt, clippy, boxes, buf lint, all tests, web
+cargo test -p greet               # one service: unit + integration (no network)
+cargo test -p platform            # infrastructure only, no services compiled
+cargo test -p e2e --test greet    # one service end-to-end
+npm run gen                       # after any .proto change
+SERVICES=greet cargo run -p host  # run one service (default: all)
+cargo run -p cli -- Jane          # call it
+```
+
+## Definition of done
+
+`scripts/verify.sh` is green. A Stop hook runs it automatically and blocks finishing while it fails
+(it skips when nothing changed since the last green run). Don't weaken a check to make it pass —
+fix the code, or ask the human.
+
+## Add a service (checklist)
+
+1. `proto/<name>/v1/<name>.proto` → `npm run gen` → add a `pub mod` block in `crates/contracts/src/lib.rs`.
+2. Copy the shape of `services/greet/` (`lib.rs`, `domain.rs`, `domain_tests.rs`, `handler.rs`, `tests/rpc.rs`, `CLAUDE.md`, `Cargo.toml`).
+3. Add `<name>.workspace = true` to `apps/host/Cargo.toml` + root `[workspace.dependencies]`, and one line in `all_modules()` in `apps/host/src/main.rs`.
+4. Add `tests/e2e/tests/<name>.rs` (HTTP + NATS).
+5. `scripts/verify.sh`.

@@ -77,7 +77,12 @@ export function NatsConsole({ url, onOpenMethod, hasMethod }: Props) {
       </nav>
       {/* Keep state across sub-tabs; Subscribe unmounts so it unsubscribes. */}
       <div hidden={tab !== 'services'}>
-        <ServicesTab url={url} onOpenMethod={onOpenMethod} hasMethod={hasMethod} onRequest={openRequest} />
+        <ServicesTab
+          url={url}
+          onOpenMethod={onOpenMethod}
+          hasMethod={hasMethod}
+          onRequest={openRequest}
+        />
       </div>
       <div hidden={tab !== 'ping'}>
         <PingTab url={url} />
@@ -202,7 +207,11 @@ function useAsync<T>(fn: () => Promise<T>) {
 }
 
 const metaText = (m?: Record<string, string> | null) =>
-  m && Object.keys(m).length ? Object.entries(m).map(([k, v]) => `${k}: ${v}`).join(', ') : ''
+  m && Object.keys(m).length
+    ? Object.entries(m)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ')
+    : ''
 
 // ------------------------------------------------- micro ls / info (Services)
 
@@ -247,10 +256,19 @@ function ServicesTab({
           <input value={name} placeholder="all" onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="instance id">
-          <input value={id} placeholder="all" disabled={!name} onChange={(e) => setId(e.target.value)} />
+          <input
+            value={id}
+            placeholder="all"
+            disabled={!name}
+            onChange={(e) => setId(e.target.value)}
+          />
         </Field>
         <Field label="endpoint filter (-e)">
-          <input value={epFilter} placeholder="regex" onChange={(e) => setEpFilter(e.target.value)} />
+          <input
+            value={epFilter}
+            placeholder="regex"
+            onChange={(e) => setEpFilter(e.target.value)}
+          />
         </Field>
         <label className="check">
           <input type="checkbox" checked={json} onChange={(e) => setJson(e.target.checked)} /> JSON
@@ -316,7 +334,9 @@ function ServicesTab({
                                   <button
                                     className="link"
                                     disabled={!hasMethod(rpc)}
-                                    title={hasMethod(rpc) ? rpc : `${rpc} is not in the loaded schema`}
+                                    title={
+                                      hasMethod(rpc) ? rpc : `${rpc} is not in the loaded schema`
+                                    }
                                     onClick={() => onOpenMethod(rpc)}
                                   >
                                     Open in RPC
@@ -481,22 +501,36 @@ function StatsTab({ url, active }: { url: string; active: boolean }) {
           <input value={name} placeholder="all" onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="instance id">
-          <input value={id} placeholder="all" disabled={!name} onChange={(e) => setId(e.target.value)} />
+          <input
+            value={id}
+            placeholder="all"
+            disabled={!name}
+            onChange={(e) => setId(e.target.value)}
+          />
         </Field>
         <label className="check">
           <input type="checkbox" checked={json} onChange={(e) => setJson(e.target.checked)} /> JSON
         </label>
         <label className="check">
-          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> auto-refresh 2s
+          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />{' '}
+          auto-refresh 2s
         </label>
         <button className="primary" onClick={run} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </Toolbar>
-      <CliHint cmd={`nats micro stats ${name || '<service>'}${id ? ` ${id}` : ''}${json ? ' -j' : ''}`} />
+      <CliHint
+        cmd={`nats micro stats ${name || '<service>'}${id ? ` ${id}` : ''}${json ? ' -j' : ''}`}
+      />
       <ErrorBox error={error} />
       {data && json && <pre className="code">{JSON.stringify(data, null, 2)}</pre>}
-      {data && !json && (data.length === 0 ? <Empty>No micro services answered.</Empty> : <StatsTable stats={data} />)}
+      {data &&
+        !json &&
+        (data.length === 0 ? (
+          <Empty>No micro services answered.</Empty>
+        ) : (
+          <StatsTable stats={data} />
+        ))}
     </section>
   )
 }
@@ -521,18 +555,18 @@ interface CountSummary {
 function ReplyView({ r, trace = true }: { r: ReqResult; trace?: boolean }) {
   return (
     <>
-    <div className="reply">
-      <div className="reply-status">
-        <span className={`status ${r.ok ? 'ok' : 'bad'}`}>
-          {r.error ? 'error' : r.serviceError ? `service error ${r.serviceError.code}` : 'ok'}
-        </span>
-        <span className="dim small mono">{formatMs(r.rttMs)}</span>
+      <div className="reply">
+        <div className="reply-status">
+          <span className={`status ${r.ok ? 'ok' : 'bad'}`}>
+            {r.error ? 'error' : r.serviceError ? `service error ${r.serviceError.code}` : 'ok'}
+          </span>
+          <span className="dim small mono">{formatMs(r.rttMs)}</span>
+        </div>
+        <ErrorBox error={r.error ?? (r.serviceError ? r.serviceError.message : undefined)} />
+        <HeadersView headers={r.headers} />
+        {!r.error && <PayloadView data={r.data} />}
       </div>
-      <ErrorBox error={r.error ?? (r.serviceError ? r.serviceError.message : undefined)} />
-      <HeadersView headers={r.headers} />
-      {!r.error && <PayloadView data={r.data} />}
-    </div>
-    {trace && <TracePanel key={r.traceId} traceId={r.traceId} />}
+      {trace && <TracePanel key={r.traceId} traceId={r.traceId} />}
     </>
   )
 }
@@ -583,7 +617,12 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
         ? startSpan(
             `nats micro req ×${n}`,
             SpanKind.INTERNAL,
-            { 'messaging.system': 'nats', 'micro.service': svc.name, 'micro.endpoint': ep.name, 'playground.count': n },
+            {
+              'messaging.system': 'nats',
+              'micro.service': svc.name,
+              'micro.endpoint': ep.name,
+              'playground.count': n,
+            },
             extractContext(hdrs),
           )
         : undefined
@@ -605,10 +644,16 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
         const after = await microStats(url, svc.name)
         const reqs = (list?: MicroStats[]) =>
           new Map(
-            (list ?? []).map((s) => [s.id, s.endpoints.find((e) => e.name === ep.name)?.num_requests ?? 0]),
+            (list ?? []).map((s) => [
+              s.id,
+              s.endpoints.find((e) => e.name === ep.name)?.num_requests ?? 0,
+            ]),
           )
         const b = reqs(before)
-        const distribution = [...reqs(after)].map(([id, v]) => ({ id, delta: v - (b.get(id) ?? 0) }))
+        const distribution = [...reqs(after)].map(([id, v]) => ({
+          id,
+          delta: v - (b.get(id) ?? 0),
+        }))
         setSummary({
           sent: rtts.length,
           ok,
@@ -688,10 +733,21 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
       </div>
       <Toolbar>
         <Field label="timeout ms">
-          <input type="number" min={1} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} />
+          <input
+            type="number"
+            min={1}
+            value={timeoutMs}
+            onChange={(e) => setTimeoutMs(e.target.value)}
+          />
         </Field>
         <Field label="count (--count)">
-          <input type="number" min={1} max={1000} value={count} onChange={(e) => setCount(e.target.value)} />
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={count}
+            onChange={(e) => setCount(e.target.value)}
+          />
         </Field>
         <div className="spacer" />
         <button className="primary" onClick={send} disabled={running || !ep}>
@@ -713,7 +769,8 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
               failed <b>{summary.failed}</b>
             </span>
             <span className="dim mono">
-              rtt min {formatMs(summary.min)} · avg {formatMs(summary.avg)} · max {formatMs(summary.max)}
+              rtt min {formatMs(summary.min)} · avg {formatMs(summary.avg)} · max{' '}
+              {formatMs(summary.max)}
             </span>
           </div>
           <h4>Load distribution (stats delta per instance)</h4>
@@ -797,7 +854,12 @@ function RawTab({ url }: { url: string }) {
         </Field>
         {mode === 'req' && (
           <Field label="timeout ms">
-            <input type="number" min={1} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} />
+            <input
+              type="number"
+              min={1}
+              value={timeoutMs}
+              onChange={(e) => setTimeoutMs(e.target.value)}
+            />
           </Field>
         )}
       </Toolbar>
@@ -902,7 +964,8 @@ function SubscribeTab({ url }: { url: string }) {
           </button>
         )}
         <label className="check">
-          <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} /> pause
+          <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />{' '}
+          pause
         </label>
         <button className="link" onClick={() => setMsgs([])}>
           Clear
@@ -912,14 +975,17 @@ function SubscribeTab({ url }: { url: string }) {
       <ErrorBox error={error} />
       <div className="dim small">
         {active ? `Listening on ${active}` : 'Not subscribed'} · {msgs.length} message
-        {msgs.length === 1 ? '' : 's'} (last {TAIL_MAX} kept). Tip: <code>$SRV.&gt;</code> shows discovery
-        traffic, <code>_INBOX.&gt;</code> shows replies.
+        {msgs.length === 1 ? '' : 's'} (last {TAIL_MAX} kept). Tip: <code>$SRV.&gt;</code> shows
+        discovery traffic, <code>_INBOX.&gt;</code> shows replies.
       </div>
       {msgs.length > 0 && (
         <ul className="tail">
           {msgs.map((m, i) => (
             <li key={`${m.at}-${i}`}>
-              <button className="tail-row" onClick={() => setOpenIdx(openIdx === i ? undefined : i)}>
+              <button
+                className="tail-row"
+                onClick={() => setOpenIdx(openIdx === i ? undefined : i)}
+              >
                 <span className="dim mono small">{new Date(m.at).toLocaleTimeString()}</span>
                 <span className="mono">{m.subject}</span>
                 {m.reply && <span className="dim mono small">reply → {m.reply}</span>}
