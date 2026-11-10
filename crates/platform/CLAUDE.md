@@ -9,11 +9,15 @@ src/host.rs         run modules on adapters chosen by env (ADDR, HTTP_DISABLED, 
 src/adapter.rs      trait Adapter + HttpAdapter (all modules, one port) + NatsAdapter (one micro service per module)
 src/http_server.rs  axum server + CORS (CORS_ORIGINS)
 src/nats/           wire.rs (pure naming/status rules) · server.rs (micro endpoints) · client.rs (NatsTransport)
-src/telemetry/      init.rs · logs.rs (JSON) · propagation.rs (W3C headers) · interceptor.rs (rpc.server) · client.rs (rpc.client)
+src/telemetry/      init.rs (traces/logs/metrics providers) · logs.rs (JSON) · propagation.rs (W3C headers)
+                    interceptor.rs (rpc.server span + rpc.server.call.duration) · client.rs (rpc.client)
+                    log_backend.rs (TracingLogs) · metrics_backend.rs (OtelMetrics) · test_meter.rs (tests only)
 ```
 
 - May depend on `kernel` only. Errors: `anyhow::Result` + `.context(...)`.
 - New transport (e.g. JetStream)? Implement `Adapter` in a new file; register it in `host.rs::adapters_from_env`.
 - Keep wire-format logic as pure functions in `nats/wire.rs` so it is unit-testable.
-- Test: `cargo test -p platform` (unit). End-to-end behaviour is covered by `tests/e2e`.
+- Service logs go through `TracingLogs` with target `service`; their fields travel as JSON in
+  `log.fields` (flattened by `logs.rs` and by the collector). Keep both in sync.
+- Test: `cargo test -p platform` (unit; OTel metrics via `test_meter::TestMeter`). End-to-end behaviour is covered by `tests/e2e`.
 - NATS wire format and env vars are documented in `HUMAN.md` — update it when you change them.

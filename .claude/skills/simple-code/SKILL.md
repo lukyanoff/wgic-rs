@@ -61,6 +61,41 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
 - One behaviour per test, named as a sentence: `empty_name_is_invalid_argument`.
 - Arrange / act / assert, with small helper functions (`client()`, `request("Jane")`) instead of setup frameworks.
 
+## Logging & metrics (injected, never static)
+
+Services never call `tracing::info!` or OTel directly. Inject in the constructor, like C# DI:
+
+```rust
+pub struct OrderHandler { log: Logger, metrics: Metrics }
+
+impl OrderHandler {
+    pub fn new(deps: &Deps) -> Self {
+        Self { log: deps.logger("orders"), metrics: deps.metrics("orders") }
+    }
+}
+
+self.log.info("order placed", [kv("order_id", id), kv("items", count)]);
+let log = self.log.with([kv("order_id", id)]);          // scope: added to every entry
+self.metrics.count("placed", 1, [kv("channel", "web")]); // → orders.placed (orders_placed_total)
+self.metrics.record("pricing_seconds", 0.012, []);       // histogram; `_seconds` gets latency buckets
+self.metrics.set("open_carts", 42.0, []);                 // gauge
+```
+
+| C# | here |
+|---|---|
+| `ILogger<T>` | `deps.logger("svc")` → `Logger` |
+| `logger.LogInformation("Placed {OrderId}", id)` | `log.info("order placed", [kv("order_id", id)])` |
+| `logger.BeginScope(...)` | `log.with([kv(...)])` |
+| `IMetrics` / `Meter.CreateCounter` | `deps.metrics("svc")` → `count` / `record` / `set` by name |
+
+- Messages are short constant phrases (`"order placed"`), data goes in fields — never `format!` data into the message.
+- Metric names are short (`placed`); the meter adds `svc.`. Never use a name with two kinds.
+- Metric tags must have few values (transport, reason, status). **Never** ids, names, emails.
+- Don't add per-RPC duration/count/error metrics: platform records them for every call.
+- Log/measure in the handler (or an application `service.rs`); `domain.rs` stays pure.
+- Tests: `Deps::in_process(&[]).with_logs(logs.clone()).with_metrics(metrics.clone())` with
+  `kernel::testing::{MemoryLogs, MemoryMetrics}`, then `logs.find("order placed")`, `metrics.sum("orders.placed")`.
+
 ## Comments
 
 - Doc comment on every `pub` item: what it does, with a tiny example when the shape isn't obvious.

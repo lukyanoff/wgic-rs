@@ -1,7 +1,7 @@
 //! Greet service: says hello.
 //!
 //! - `domain.rs`  — the rules (pure functions, unit tested)
-//! - `handler.rs` — proto ⇄ domain (implements the generated `GreetService` trait)
+//! - `handler.rs` — proto ⇄ domain + logs/metrics (implements the generated `GreetService` trait)
 //! - `module()`   — the only thing the host needs
 
 mod domain;
@@ -14,11 +14,11 @@ use kernel::{Deps, Module};
 
 use handler::GreetHandler;
 
-/// Create the module. `deps` is unused here; a service that calls others keeps
-/// `deps.channel()` to build their generated clients.
-pub fn module(_deps: &Deps) -> Arc<dyn Module> {
+/// Create the module. The handler takes its logger and metrics from `deps`; a service that
+/// calls others also keeps `deps.channel()` to build their generated clients.
+pub fn module(deps: &Deps) -> Arc<dyn Module> {
     Arc::new(GreetModule {
-        handler: Arc::new(GreetHandler),
+        handler: Arc::new(GreetHandler::new(deps)),
     })
 }
 

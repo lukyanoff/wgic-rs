@@ -659,7 +659,6 @@ dependencies = [
  "contracts",
  "kernel",
  "tokio",
- "tracing",
 ]
 
 [[package]]

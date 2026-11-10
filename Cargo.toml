@@ -36,11 +36,11 @@ futures = "0.3.34"
 http = "1.5.0"
 http-body = "1.1.0"
 http-body-util = "0.1.5"
-opentelemetry = "0.33"
+opentelemetry = { version = "0.33", features = ["metrics"] }
 opentelemetry-appender-tracing = "0.33"
 opentelemetry-http = "0.33"
-opentelemetry-otlp = "0.33"
-opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio", "metrics"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.54.1", features = ["full"] }

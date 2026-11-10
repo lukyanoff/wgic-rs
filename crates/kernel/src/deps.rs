@@ -3,9 +3,12 @@ use std::sync::Arc;
 use connectrpc::Router;
 use connectrpc::client::ClientConfig;
 
-use crate::{Channel, Module};
+use crate::testing::{NoopLogs, NoopMetrics};
+use crate::{Channel, LogBackend, Logger, Metrics, MetricsBackend, Module};
 
-/// What the host gives a service when it is created.
+/// What the host gives a service when it is created (≈ a C# DI container, but explicit).
+///
+/// Logging and metrics: `deps.logger("greet")`, `deps.metrics("greet")`.
 ///
 /// Call another service with its generated client:
 /// `BillingServiceClient::new(deps.channel(), deps.client_config())`.
@@ -14,14 +17,41 @@ use crate::{Channel, Module};
 pub struct Deps {
     channel: Channel,
     client_config: ClientConfig,
+    logs: Arc<dyn LogBackend>,
+    metrics: Arc<dyn MetricsBackend>,
 }
 
 impl Deps {
+    /// Logs and metrics are dropped until [`Deps::with_logs`] / [`Deps::with_metrics`] set them.
     pub fn new(channel: Channel, client_config: ClientConfig) -> Self {
         Self {
             channel,
             client_config,
+            logs: Arc::new(NoopLogs),
+            metrics: Arc::new(NoopMetrics),
         }
+    }
+
+    /// Send logs to `backend` (platform's `TracingLogs`, or `testing::MemoryLogs`).
+    pub fn with_logs(mut self, backend: impl LogBackend + 'static) -> Self {
+        self.logs = Arc::new(backend);
+        self
+    }
+
+    /// Send metrics to `backend` (platform's `OtelMetrics`, or `testing::MemoryMetrics`).
+    pub fn with_metrics(mut self, backend: impl MetricsBackend + 'static) -> Self {
+        self.metrics = Arc::new(backend);
+        self
+    }
+
+    /// A logger for `category` (usually the service name).
+    pub fn logger(&self, category: &str) -> Logger {
+        Logger::new(category, self.logs.clone())
+    }
+
+    /// Metrics named `<meter>.<name>` (usually meter = the service name).
+    pub fn metrics(&self, meter: &str) -> Metrics {
+        Metrics::new(meter, self.metrics.clone())
     }
 
     /// Deps whose channel calls `modules` in-process. For tests:

@@ -10,6 +10,23 @@ use tracing_subscriber::fmt::time::{FormatTime, SystemTime};
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
 
+use super::log_backend::SERVICE_FIELDS;
+
+/// Service logs carry their fields as one JSON string (see `log_backend::SERVICE_FIELDS`);
+/// put them back at the top level. Never overwrites the standard keys.
+fn flatten_service_fields(out: &mut Map<String, Value>) {
+    let Some(Value::String(json)) = out.remove(SERVICE_FIELDS) else {
+        return;
+    };
+    let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(&json) else {
+        out.insert(SERVICE_FIELDS.into(), json.into());
+        return;
+    };
+    for (key, value) in fields {
+        out.entry(key).or_insert(value);
+    }
+}
+
 /// One JSON object per line:
 /// `{"timestamp","level","target","message",...fields,"span","trace_id","span_id"}`.
 pub struct JsonLogFormat;
@@ -67,6 +84,7 @@ where
             out.insert("message".into(), message);
         }
         out.extend(fields.0);
+        flatten_service_fields(&mut out);
 
         if let Some(span) = ctx.lookup_current() {
             out.insert("span".into(), span.name().into());
@@ -83,3 +101,7 @@ where
         writeln!(writer, "{line}")
     }
 }
+
+#[cfg(test)]
+#[path = "logs_tests.rs"]
+mod tests;

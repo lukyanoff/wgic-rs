@@ -10,7 +10,7 @@ use kernel::{Channel, Deps, Module};
 use crate::adapter::{Adapter, HttpAdapter, NatsAdapter};
 use crate::addr_from_env;
 use crate::nats::{NatsConfig, NatsTransport};
-use crate::telemetry::TracingTransport;
+use crate::telemetry::{OtelMetrics, TracingLogs, TracingTransport};
 
 /// The services a host runs, shared by every adapter.
 pub type Modules = Vec<Arc<dyn Module>>;
@@ -79,9 +79,15 @@ pub fn select_modules(all: Modules, wanted: &str) -> anyhow::Result<Modules> {
         .collect())
 }
 
-/// Deps for calling other services: over NATS when `NATS_URL` is set, otherwise
-/// over HTTP to `UPSTREAM_ADDR` (default: `ADDR`, i.e. this host itself).
+/// Deps for services: logs → `tracing` (JSON stdout + OTLP), metrics → OTel, and calls to
+/// other services over NATS when `NATS_URL` is set, otherwise over HTTP to `UPSTREAM_ADDR`
+/// (default: `ADDR`, i.e. this host itself).
 pub async fn deps_from_env() -> anyhow::Result<Deps> {
+    let deps = client_deps_from_env().await?;
+    Ok(deps.with_logs(TracingLogs).with_metrics(OtelMetrics::new()))
+}
+
+async fn client_deps_from_env() -> anyhow::Result<Deps> {
     if let Some(config) = NatsConfig::from_env() {
         let nc = async_nats::connect(config.url.as_str())
             .await

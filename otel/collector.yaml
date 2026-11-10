@@ -2,8 +2,9 @@
 # Mounted by compose.yaml at /etc/otelcol-contrib/config.yaml.
 #
 #   Rust servers/clients ─┐
-#   browser playground ───┼─ OTLP (4317 gRPC, 4318 HTTP) ─▶ traces ─▶ Jaeger
-#                         │                                 logs   ─▶ debug (collector stdout)
+#   browser playground ───┼─ OTLP (4317 gRPC, 4318 HTTP) ─▶ traces  ─▶ Jaeger
+#                         │                                 logs    ─▶ debug (collector stdout)
+#                         │                                 metrics ─▶ :8889 ◀─ Prometheus ◀─ Grafana
 
 receivers:
   otlp:
@@ -21,6 +22,15 @@ receivers:
 processors:
   batch:
     timeout: 500ms
+  # Service logs (kernel::Logger) carry their key/value pairs as one JSON string in
+  # `log.fields`; turn them into real log attributes.
+  transform/service_fields:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - merge_maps(attributes, ParseJSON(attributes["log.fields"]), "upsert") where attributes["log.fields"] != nil
+          - delete_key(attributes, "log.fields")
 
 exporters:
   otlp/jaeger:
@@ -31,6 +41,11 @@ exporters:
   #   podman compose logs -f otel-collector
   debug:
     verbosity: detailed
+  # Scraped by Prometheus (prometheus/prometheus.yml). `service.name` etc. become labels.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
 
 service:
   pipelines:
@@ -40,5 +55,9 @@ service:
       exporters: [otlp/jaeger]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [transform/service_fields, batch]
       exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

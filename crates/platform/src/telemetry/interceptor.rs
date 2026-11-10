@@ -1,4 +1,5 @@
-//! Server side: one `rpc.server` span per call, on every protocol and transport.
+//! Server side: one `rpc.server` span and one `rpc.server.call.duration` measurement per call,
+//! on every protocol and transport.
 
 use std::time::Instant;
 
@@ -9,13 +10,14 @@ use connectrpc::interceptor::{
 use connectrpc::{ConnectError, Protocol, RequestContext};
 use futures::StreamExt;
 use kernel::{RequestContextExt, Transport};
-use opentelemetry::Context;
+use opentelemetry::metrics::Histogram;
 use opentelemetry::trace::TraceContextExt;
+use opentelemetry::{Context, KeyValue, global};
 use tracing::field::Empty;
 use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::{continue_trace, elapsed_ms, extract_http, split_procedure};
+use super::{SECONDS_BUCKETS, continue_trace, elapsed_ms, extract_http, split_procedure};
 
 /// OTEL access for handlers that need it: `ctx.otel()`, `ctx.trace_id()`.
 /// Most handlers don't: logs inside a handler already carry `trace_id`.
@@ -41,10 +43,33 @@ impl RequestContextOtel for RequestContext {
     }
 }
 
-/// Opens an `rpc.server` span for every call, continuing the caller's trace.
-/// Register with `ConnectRpcService::with_interceptor(OtelInterceptor)`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct OtelInterceptor;
+/// Opens an `rpc.server` span for every call, continuing the caller's trace, and records
+/// the call duration in the `rpc.server.call.duration` histogram (seconds).
+/// Register with `ConnectRpcService::with_interceptor(OtelInterceptor::new())`.
+#[derive(Clone)]
+pub struct OtelInterceptor {
+    duration: Histogram<f64>,
+}
+
+impl OtelInterceptor {
+    /// Uses the global meter provider, so create it after `telemetry::init`.
+    pub fn new() -> Self {
+        let meter = global::meter("platform");
+        let duration = meter
+            .f64_histogram("rpc.server.call.duration")
+            .with_unit("s")
+            .with_description("Duration of RPC calls handled by this server")
+            .with_boundaries(SECONDS_BUCKETS.to_vec())
+            .build();
+        Self { duration }
+    }
+}
+
+impl Default for OtelInterceptor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[connectrpc::async_trait]
 impl Interceptor for OtelInterceptor {
@@ -53,10 +78,9 @@ impl Interceptor for OtelInterceptor {
         mut req: UnaryRequest,
         next: Next<'_>,
     ) -> Result<UnaryResponse, ConnectError> {
-        let span = server_span(&mut req.ctx);
-        let started = Instant::now();
-        let result = next.run(req).instrument(span.clone()).await;
-        finish_server(&span, started, result.as_ref().err(), None);
+        let call = Call::start(&mut req.ctx, self.duration.clone());
+        let result = next.run(req).instrument(call.span.clone()).await;
+        call.finish(result.as_ref().err(), None);
         result
     }
 
@@ -66,15 +90,12 @@ impl Interceptor for OtelInterceptor {
         inbound: PayloadStream,
         next: NextStream<'_>,
     ) -> Result<StreamResponse, ConnectError> {
-        let span = server_span(&mut req.ctx);
-        let started = Instant::now();
-        let result = next.run(req, inbound).instrument(span.clone()).await;
+        let call = Call::start(&mut req.ctx, self.duration.clone());
+        let result = next.run(req, inbound).instrument(call.span.clone()).await;
         match result {
-            Ok(response) => {
-                Ok(response.map_body(move |stream| finish_on_end(stream, span, started)))
-            }
+            Ok(response) => Ok(response.map_body(move |stream| finish_on_end(stream, call))),
             Err(e) => {
-                finish_server(&span, started, Some(&e), None);
+                call.finish(Some(&e), None);
                 Err(e)
             }
         }
@@ -91,26 +112,68 @@ fn protocol_names(protocol: Option<Protocol>) -> (&'static str, &'static str) {
     }
 }
 
-fn server_span(ctx: &mut RequestContext) -> Span {
-    let procedure = ctx
-        .path()
-        .map(str::to_string)
-        .or_else(|| ctx.spec().map(|s| s.procedure.to_string()))
-        .unwrap_or_else(|| "unknown".into());
-    let (service, method) = split_procedure(&procedure);
-    let (system, wire) = protocol_names(ctx.protocol());
+/// One call in progress: its span, start time and metric attributes.
+struct Call {
+    span: Span,
+    started: Instant,
+    /// Low-cardinality attributes for the duration metric (no subject, no content type).
+    attributes: Vec<KeyValue>,
+    duration: Histogram<f64>,
+}
+
+impl Call {
+    fn start(ctx: &mut RequestContext, duration: Histogram<f64>) -> Call {
+        let procedure = ctx
+            .path()
+            .map(str::to_string)
+            .or_else(|| ctx.spec().map(|s| s.procedure.to_string()))
+            .unwrap_or_else(|| "unknown".into());
+        let (service, method) = split_procedure(&procedure);
+        let (system, wire) = protocol_names(ctx.protocol());
+        let transport = ctx.transport();
+        let span = server_span(ctx, &procedure, (system, wire), &transport);
+        let attributes = vec![
+            KeyValue::new("rpc.system", system),
+            KeyValue::new("rpc.service", service.to_string()),
+            KeyValue::new("rpc.method", method.to_string()),
+            KeyValue::new("rpc.transport", transport.name()),
+        ];
+        Call {
+            span,
+            started: Instant::now(),
+            attributes,
+            duration,
+        }
+    }
+
+    /// Close the call: log + span status + duration metric.
+    fn finish(&self, err: Option<&ConnectError>, messages: Option<u64>) {
+        let code = err.map_or("ok", |e| e.code.as_str());
+        let mut attributes = self.attributes.clone();
+        attributes.push(KeyValue::new("rpc.response.status_code", code));
+        self.duration
+            .record(self.started.elapsed().as_secs_f64(), &attributes);
+        finish_span(&self.span, self.started, err, messages);
+    }
+}
+
+fn server_span(
+    ctx: &mut RequestContext,
+    procedure: &str,
+    (system, wire): (&str, &str),
+    transport: &Transport,
+) -> Span {
+    let (service, method) = split_procedure(procedure);
     let content_type = ctx
         .headers()
         .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let transport = ctx.transport();
-    let subject = match &transport {
+    let subject = match transport {
         Transport::Http => None,
         Transport::Nats { subject } => Some(subject.as_str()),
     };
-
     let span = tracing::info_span!(
         "rpc.server",
         otel.name = procedure.trim_start_matches('/'),
@@ -131,7 +194,7 @@ fn server_span(ctx: &mut RequestContext) -> Span {
     span
 }
 
-fn finish_server(span: &Span, started: Instant, err: Option<&ConnectError>, messages: Option<u64>) {
+fn finish_span(span: &Span, started: Instant, err: Option<&ConnectError>, messages: Option<u64>) {
     let duration_ms = elapsed_ms(started);
     let _entered = span.enter();
     let Some(e) = err else {
@@ -149,30 +212,24 @@ fn finish_server(span: &Span, started: Instant, err: Option<&ConnectError>, mess
 /// State carried while a server stream is being sent.
 struct StreamState {
     inner: PayloadStream,
-    span: Span,
-    started: Instant,
+    call: Call,
     count: u64,
     error: Option<ConnectError>,
 }
 
-/// Poll the outbound stream inside the span and close the span when the stream ends.
-fn finish_on_end(stream: PayloadStream, span: Span, started: Instant) -> PayloadStream {
+/// Poll the outbound stream inside the span and finish the call when the stream ends.
+fn finish_on_end(stream: PayloadStream, call: Call) -> PayloadStream {
     let state = StreamState {
         inner: stream,
-        span,
-        started,
+        call,
         count: 0,
         error: None,
     };
     Box::pin(futures::stream::unfold(Some(state), |state| async move {
         let mut state = state?;
-        let Some(item) = state.inner.next().instrument(state.span.clone()).await else {
-            finish_server(
-                &state.span,
-                state.started,
-                state.error.as_ref(),
-                Some(state.count),
-            );
+        let next = state.inner.next().instrument(state.call.span.clone()).await;
+        let Some(item) = next else {
+            state.call.finish(state.error.as_ref(), Some(state.count));
             return None;
         };
         match &item {

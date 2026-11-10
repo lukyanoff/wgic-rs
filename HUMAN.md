@@ -149,11 +149,13 @@ nats req rpc.greet.v1.GreetService.Greet '{"name":"Jane"}'         # raw subject
 
 Every request and reply is traced on every protocol: Connect JSON and binary,
 gRPC and gRPC-web over HTTP, and Connect over NATS. Every log line is JSON
-with the `trace_id` and `span_id` of the active span. The playground starts
-each trace in the browser and shows the whole thing.
+with the `trace_id` and `span_id` of the active span. Every call is measured
+(`rpc.server.call.duration`), and services add their own metrics. The playground
+starts each trace in the browser and shows the whole thing.
 
 ```sh
-podman compose up -d   # NATS + otel-collector (4317 gRPC, 4318 HTTP) + Jaeger (http://localhost:16686)
+podman compose up -d   # NATS, otel-collector (4317 gRPC, 4318 HTTP), Jaeger (http://localhost:16686),
+                       # Prometheus (http://localhost:9090), Grafana (http://localhost:3000)
 
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_BSP_SCHEDULE_DELAY=200 \
   NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run -p host
@@ -165,6 +167,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 ADDR=127.0.0.1:8081 cargo run 
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | (unset, so no export) | OTLP/HTTP collector. When it is unset, spans still get IDs, so logs stay correlated. |
 | `OTEL_SERVICE_NAME` | `host` / `cli` | `service.name` |
 | `OTEL_BSP_SCHEDULE_DELAY` | `5000` | Batch export delay in ms. Use a low value so the playground sees server spans quickly. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `10000` | Metrics export interval in ms |
 | `RUST_LOG` | `info` | Log filter, e.g. `info,platform=debug` |
 
 **Logs.** One JSON object per line on stdout. Each log is also an OTLP log
@@ -172,8 +175,26 @@ record (the collector prints them: `podman compose logs -f otel-collector`)
 and an event on its span (Jaeger shows these as span logs):
 
 ```json
-{"timestamp":"…","level":"INFO","target":"server","message":"greeting","name":"Jane","transport":"nats","span":"rpc.server","trace_id":"4491f568…","span_id":"d914f9f3…"}
+{"timestamp":"…","level":"INFO","target":"service","message":"greeting sent","category":"greet","name":"Jane","transport":"nats","span":"rpc.server","trace_id":"4491f568…","span_id":"d914f9f3…"}
 ```
+
+Service fields (`kv("name", …)`) travel as one JSON string `log.fields`, because
+`tracing` needs field names at compile time. The JSON formatter and the
+collector (`transform/service_fields` in `otel/collector.yaml`) turn them back
+into normal fields/attributes.
+
+**Metrics.** Services → OTLP → collector (`:8889`) → Prometheus → Grafana. Grafana's
+"RPC overview" dashboard (`grafana/dashboards/rpc-overview.json`) shows
+requests/s, p50/p95 latency and errors per method and transport, plus the greet
+service's own counters.
+
+| Metric (Prometheus name) | Source | Labels |
+|---|---|---|
+| `rpc_server_call_duration_seconds` (histogram) | platform, every call | `rpc_system`, `rpc_service`, `rpc_method`, `rpc_transport`, `rpc_response_status_code` |
+| `greet_greetings_total` | greet service | `transport` |
+| `greet_rejected_total` | greet service | `reason` |
+
+Every metric also has `service_name` (from `OTEL_SERVICE_NAME`).
 
 **Spans.** W3C `traceparent`, `tracestate` and `baggage` are carried in HTTP
 headers and in NATS message headers. Each hop rewrites them with its own span.
@@ -191,8 +212,11 @@ NATS:  client span → send <subject> (producer) → process <subject> (consumer
 **In code** (`crates/platform/src/telemetry/`):
 
 - `platform::init_telemetry("name")` at the top of `main`. Keep the guard: it flushes on drop.
-- Servers get `OtelInterceptor` automatically through `platform::run()`. Handlers run
-  inside the `rpc.server` span, so `tracing::info!(…)` is correlated. The span's OTEL
+- Servers get `OtelInterceptor` (span + duration metric) automatically through
+  `platform::run()`. Handlers run inside the `rpc.server` span, so logs are correlated.
+- Services never call `tracing`/OTel: they get `deps.logger("svc")` and
+  `deps.metrics("svc")` (`kernel::Logger` / `kernel::Metrics`). `deps_from_env()`
+  backs them with `TracingLogs` and `OtelMetrics`; tests use `kernel::testing::{MemoryLogs, MemoryMetrics}`. The span's OTEL
   context is part of the request context:
   `kernel::RequestContextExt` gives `ctx.transport()`; infrastructure code can use
   `platform::telemetry::RequestContextOtel` for `ctx.otel()` / `ctx.trace_id()`.
@@ -283,7 +307,8 @@ Cognitive Boxes: every box has a `CLAUDE.md` describing what it owns and what it
 - `scripts/verify.sh`: definition of done (fmt, clippy, boxes, buf lint, all tests, web)
 - `.claude/`: project hooks (format on edit, verify on stop) and the `simple-code` skill
 - `compose.yaml`, `nats/nats.conf`: NATS with WebSocket and monitoring, plus nats-box (profile `tools`)
-- `otel/collector.yaml`: OTEL Collector (OTLP in, traces to Jaeger, logs to its stdout)
+- `otel/collector.yaml`: OTEL Collector (OTLP in; traces to Jaeger, logs to its stdout, metrics to Prometheus)
+- `prometheus/prometheus.yml`, `grafana/`: metrics storage, datasources and the "RPC overview" dashboard
 - `web/`: the React playground
   - `src/schema.ts`: loads the descriptors
   - `src/call.ts`: dynamic calls

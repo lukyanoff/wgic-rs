@@ -8,7 +8,7 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 | Box | Path | Owns | May depend on |
 |---|---|---|---|
 | 0 contracts | `proto/`, `crates/contracts` | `.proto` + generated code | — |
-| 1 kernel | `crates/kernel` | `Module`, `Deps`, `Channel`, `Transport` | — |
+| 1 kernel | `crates/kernel` | `Module`, `Deps`, `Channel`, `Logger`, `Metrics`, `Transport` | — |
 | 2 platform | `crates/platform` | HTTP + NATS adapters, telemetry, host runner | kernel |
 | 3 services | `services/<name>` | one service: domain rules + handler | contracts, kernel |
 | 4 apps | `apps/host`, `apps/cli` | wiring (composition root), CLI | anything |
@@ -25,12 +25,15 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 5. **Tests and code live in separate files.** `foo.rs` ends with
    `#[cfg(test)] #[path = "foo_tests.rs"] mod tests;` and the tests go in `foo_tests.rs` (next to it,
    starting with `use super::*;`). No inline `mod tests { ... }` (checked by `check-boxes.sh`).
-6. **Generated code is never edited by hand** (`crates/contracts/src/gen/`). Change `.proto`, run `npm run gen`.
+6. **Logging and metrics are injected, never static.** A handler gets `deps.logger("svc")` and
+   `deps.metrics("svc")` in its `new(deps)`; services must not depend on `tracing`/`opentelemetry`
+   (checked). Platform already records every RPC's duration/status — services add only business metrics.
+7. **Generated code is never edited by hand** (`crates/contracts/src/gen/`). Change `.proto`, run `npm run gen`.
 
 ## Commands
 
 ```sh
-podman compose up -d              # NATS + OTel collector + Jaeger (needed by e2e)
+podman compose up -d              # NATS, OTel collector, Jaeger :16686, Prometheus :9090, Grafana :3000
 scripts/verify.sh                 # definition of done: fmt, clippy, boxes, buf lint, all tests, web
 cargo test -p greet               # one service: unit + integration (no network)
 cargo test -p platform            # infrastructure only, no services compiled

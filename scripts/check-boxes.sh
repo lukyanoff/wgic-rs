@@ -53,6 +53,7 @@ for svc in services/*/; do
   [ -f "$svc/CLAUDE.md" ]               || error "$name: no services/$name/CLAUDE.md"
   grep -qs "$name::module" apps/host/src/main.rs || error "$name: not registered in apps/host/src/main.rs"
   grep -qs "^anyhow" "$svc/Cargo.toml" && error "$name: services use their own error enum, not anyhow (see simple-code skill)"
+  grep -qsE "^(tracing|opentelemetry)" "$svc/Cargo.toml" && error "$name: log and measure through the injected deps.logger()/deps.metrics(), not tracing/opentelemetry"
 done
 
 # Tests live in their own files: `foo.rs` + `foo_tests.rs`, never an inline `mod tests { ... }`.

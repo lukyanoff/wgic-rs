@@ -22,7 +22,7 @@ use connectrpc::{ConnectRpcService, Router};
 
 /// The connect service with the OTEL interceptor, shared by every adapter.
 pub fn traced_service(router: Router) -> ConnectRpcService {
-    ConnectRpcService::new(router).with_interceptor(telemetry::OtelInterceptor)
+    ConnectRpcService::new(router).with_interceptor(telemetry::OtelInterceptor::new())
 }
 
 /// Address to listen on / connect to, from env `ADDR` (default `127.0.0.1:8080`).
