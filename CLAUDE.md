@@ -11,7 +11,7 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 | 1 kernel | `crates/kernel` | `Module`, `Deps`, `Channel`, `Logger`, `Metrics`, `Transport` | — |
 | 2 platform | `crates/platform` | HTTP + NATS adapters, telemetry, host runner | kernel |
 | 3 services | `services/<name>` | one service: domain rules + handler | contracts, kernel |
-| 4 apps | `apps/host`, `apps/cli` | wiring (composition root), CLI | anything |
+| 4 apps | `apps/host` | wiring (composition root) | anything |
 | 5 e2e | `tests/e2e` | black-box tests against the real `host` binary | contracts, kernel, platform |
 
 `scripts/check-boxes.sh` enforces these arrows. Each box has its own `CLAUDE.md`: read only the one for the box you work in.
@@ -40,7 +40,7 @@ cargo test -p platform            # infrastructure only, no services compiled
 cargo test -p e2e --test greet    # one service end-to-end
 npm run gen                       # after any .proto change
 SERVICES=greet cargo run -p host  # run one service (default: all)
-cargo run -p cli -- Jane          # call it
+curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' localhost:8080/greet.v1.GreetService/Greet
 ```
 
 ## Definition of done

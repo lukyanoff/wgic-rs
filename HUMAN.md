@@ -18,19 +18,21 @@ Run this after you change or add any `.proto`:
 npm run gen   # buf generate (Rust) + descriptors for the playground + cargo fmt
 ```
 
-## Run the server and client
+## Run the server and call it
 
 ```sh
 cargo run -p host       # terminal 1: all services (SERVICES=greet runs only greet)
-cargo run -p cli        # terminal 2, prints "Hello, Jane!" (cargo run -p cli -- Bob)
+curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' http://127.0.0.1:8080/greet.v1.GreetService/Greet
+                        # terminal 2: {"greeting":"Hello, Jane!"}
 ```
 
-Both use `127.0.0.1:8080` by default. To use another address, set `ADDR`:
+The server listens on `127.0.0.1:8080` by default. To use another address, set `ADDR`:
 
 ```sh
 ADDR=127.0.0.1:8081 cargo run -p host
-ADDR=127.0.0.1:8081 cargo run -p cli
 ```
+
+More ways to call it (gRPC, NATS, the playground): see "Call it from the command line".
 
 Servers allow CORS from `http://localhost:5173` by default. To change that, set
 `CORS_ORIGINS` (comma-separated, or `*`):
@@ -77,8 +79,8 @@ NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run -p host
 # NATS only (e.g. extra instances; they load-balance automatically)
 HTTP_DISABLED=1 NATS_URL=nats://127.0.0.1:4222 cargo run -p host
 
-# client: the generated GreetServiceClient over NATS instead of HTTP
-NATS_URL=nats://127.0.0.1:4222 cargo run -p cli
+# call over NATS (Connect JSON in, JSON out)
+podman compose run --rm nats-box nats req rpc.greet.v1.GreetService.Greet '{"name":"Jane"}'
 ```
 
 Server environment variables:
@@ -159,13 +161,13 @@ podman compose up -d   # NATS, otel-collector (4317 gRPC, 4318 HTTP), Jaeger (ht
 
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_BSP_SCHEDULE_DELAY=200 \
   NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run -p host
-OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 ADDR=127.0.0.1:8081 cargo run -p cli
+# then call it from the playground (http://localhost:5173), which starts the trace in the browser
 ```
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | (unset, so no export) | OTLP/HTTP collector. When it is unset, spans still get IDs, so logs stay correlated. |
-| `OTEL_SERVICE_NAME` | `host` / `cli` | `service.name` |
+| `OTEL_SERVICE_NAME` | `host` | `service.name` |
 | `OTEL_BSP_SCHEDULE_DELAY` | `5000` | Batch export delay in ms. Use a low value so the playground sees server spans quickly. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `10000` | Metrics export interval in ms |
 | `RUST_LOG` | `info` | Log filter, e.g. `info,platform=debug` |
@@ -275,7 +277,13 @@ curl -H "Content-Type: application/json" -d '{"name":"Jane"}' \
 
 npx buf curl --schema . --protocol grpc --http2-prior-knowledge \
   --data '{"name":"Jane"}' http://localhost:8080/greet.v1.GreetService/Greet
+
+# over NATS (needs NATS_URL on the host); subject = <prefix>.<package.Service>.<Method>
+podman compose run --rm nats-box nats req rpc.greet.v1.GreetService.Greet '{"name":"Jane"}'
 ```
+
+From Rust code, use the generated client with `platform::deps_from_env()` (HTTP or NATS, chosen by
+env) — see `tests/e2e/src/lib.rs` for a working example.
 
 ## FYI: Buf Studio (no code)
 
@@ -302,7 +310,7 @@ Cognitive Boxes: every box has a `CLAUDE.md` describing what it owns and what it
 - `crates/platform`: infrastructure: `run()` (HTTP + NATS), CORS, `nats/` (micro adapter and
   `NatsTransport`), `telemetry/` (OTEL + JSON logs, `OtelInterceptor`, `TracingTransport`)
 - `services/greet`: the greet service (domain, handler, tests)
-- `apps/host`: the server binary (`SERVICES=...`); `apps/cli`: the example client
+- `apps/host`: the server binary (`SERVICES=...`)
 - `tests/e2e`: end-to-end tests against the real `host` binary (needs `podman compose up -d`)
 - `scripts/verify.sh`: definition of done (fmt, clippy, boxes, buf lint, all tests, web)
 - `.claude/`: project hooks (format on edit, verify on stop) and the `simple-code` skill
