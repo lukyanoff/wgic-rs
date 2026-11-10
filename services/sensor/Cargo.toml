@@ -1,28 +1,19 @@
 [package]
 name = "sensor"
-description = "Box 3: takes a picture of a screen or from a camera."
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
 
 [dependencies]
-contracts.workspace = true
-kernel.workspace = true
-connectrpc.workspace = true
-image.workspace = true # PNG / JPEG encoding
-tokio.workspace = true # spawn_blocking: capturing is blocking OS IO
-xcap.workspace = true  # screens: Windows, macOS, Linux (X11 + Wayland)
+anyhow = "1"
+async-trait = "0.1"
+contracts = { path = "../../crates/contracts" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+nokhwa = { version = "0.10", features = ["input-native"] }
+sdk = { path = "../../crates/sdk" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
+xcap = "0.8"
 
-# Cameras: one nokhwa backend per OS (≈ `#if LINUX` / `#if OSX` / `#if WINDOWS` package references in a .csproj).
-[target.'cfg(target_os = "linux")'.dependencies]
-nokhwa = { workspace = true, features = ["input-v4l"] }
-v4l.workspace = true # only to skip /dev/video* nodes that can't deliver pictures
-
-[target.'cfg(target_os = "macos")'.dependencies]
-nokhwa = { workspace = true, features = ["input-avfoundation"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-nokhwa = { workspace = true, features = ["input-msmf"] }
-
-[lints]
-workspace = true
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

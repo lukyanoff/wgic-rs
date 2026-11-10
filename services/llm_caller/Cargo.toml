@@ -1,21 +1,20 @@
 [package]
 name = "llm_caller"
-description = "Box 3: calls an LLM (claude/agy CLI, OpenAI, OpenRouter) and streams progress + a JSON answer."
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
 
-# Services depend ONLY on contracts + kernel + libs/* (+ plain libraries). Never on platform,
-# another service, tracing/opentelemetry (use the injected Logger/Metrics) or anyhow.
 [dependencies]
-contracts.workspace = true
-kernel.workspace = true
-connectrpc.workspace = true
-base64.workspace = true     # images as data URLs / base64 blocks
-futures.workspace = true
-reqwest.workspace = true    # HTTP drivers (OpenAI, OpenRouter)
-serde_json.workspace = true # CLI stream-json lines, SSE events, the JSON answer
-tokio.workspace = true      # child processes (CLI drivers), channels, timeouts
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+contracts = { path = "../../crates/contracts" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sdk = { path = "../../crates/sdk" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["process", "fs", "time"] }
+tracing = "0.1"
 
-[lints]
-workspace = true
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

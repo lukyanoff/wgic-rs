@@ -1,78 +1,76 @@
-//! The LLM drivers, a small class hierarchy (Rust has no inheritance, so a "base class" is a struct that holds
-//! an interface for the parts that differ):
-//!
-//! ```text
-//! LlmDriver (interface)
-//! ├── CliDriver  (base: start the program, feed it, read one JSON line at a time)  + CliFlavor (interface)
-//! │   ├── ClaudeCli   `claude -p`
-//! │   └── AgyCli      `agy -p`
-//! └── HttpDriver (OpenAI chat-completions over SSE: OpenAI and OpenRouter)
-//! ```
+pub mod agy;
+pub mod claude;
+pub mod cli;
+pub mod http;
 
-mod agy;
-mod claude;
-mod cli;
-mod http;
-
+use crate::config::{Config, DriverKind};
+use async_trait::async_trait;
+use sdk::RpcError;
 use std::sync::Arc;
 
-use connectrpc::ConnectError;
-use futures::future::BoxFuture;
-use kernel::Deps;
-use tokio::sync::mpsc;
-
-use crate::config::LlmSettings;
-
-pub use agy::AgyCli;
-pub use claude::ClaudeCli;
-pub use cli::{CliDriver, CliFlavor, LineEvent};
-pub use contracts::proto::llm_caller::v1::{CallRequest, ChatMessage, Image};
-pub use http::HttpDriver;
-
-// ---------------------------------------------------------------------------------------------
-// The interface
-// ---------------------------------------------------------------------------------------------
-
-/// ≈ C# `interface ILlmDriver`.
-pub trait LlmDriver: Send + Sync {
-    /// Send the chat (its first message is already the JSON instruction); report output pieces on `deltas`
-    /// while they arrive; return the whole answer. Dropping the returned future cancels the call.
-    fn call(&self, request: CallRequest, deltas: Deltas) -> DriverFuture;
+#[derive(Debug, Clone)]
+pub struct ImageArg {
+    pub data: Vec<u8>,
+    pub mime_type: String,
 }
 
-/// Where a driver reports output pieces (≈ C# `ChannelWriter<Delta>`).
-pub type Deltas = mpsc::UnboundedSender<Delta>;
-
-/// The async result of a driver call (≈ C# `Task<LlmReply>`), boxed so `LlmDriver` can be an interface.
-pub type DriverFuture = BoxFuture<'static, Result<LlmReply, ConnectError>>;
-
-/// One piece of streamed output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Delta {
-    /// The model is reasoning (that text is not part of the answer).
-    Thinking,
-    /// New answer text.
-    Text(String),
+#[derive(Debug, Clone, Default)]
+pub struct PromptArgs {
+    pub system_prompt: String,
+    pub text_prompt: String,
+    pub user_prompt: String,
+    pub images: Vec<ImageArg>,
 }
 
-/// What a driver returns when the model is done.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LlmReply {
+impl PromptArgs {
+    pub fn combined_prompt(&self) -> String {
+        let mut parts = Vec::new();
+        if !self.system_prompt.trim().is_empty() {
+            parts.push(format!("System:
+{}", self.system_prompt.trim()));
+        }
+        if !self.text_prompt.trim().is_empty() {
+            parts.push(format!("Context:
+{}", self.text_prompt.trim()));
+        }
+        parts.push(self.user_prompt.trim().to_string());
+        parts.join("
+
+")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmOutput {
     pub text: String,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
+    pub model: String,
 }
 
-// ---------------------------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------------------------
+#[async_trait]
+pub trait Driver: Send + Sync + 'static {
+    async fn call(&self, args: PromptArgs) -> Result<LlmOutput, RpcError>;
+}
 
-/// The driver named by `settings.driver` (≈ a DI registration switch). An unknown name stops the host.
-pub fn create(deps: &Deps, settings: &LlmSettings) -> Arc<dyn LlmDriver> {
-    match settings.driver.as_str() {
-        "claude-cli" => Arc::new(CliDriver::new(ClaudeCli, settings)),
-        "agy-cli" => Arc::new(CliDriver::new(AgyCli, settings)),
-        "openai" | "openrouter" => Arc::new(HttpDriver::new(deps, settings)),
-        other => panic!("LLM_CALLER_DRIVER={other:?} is invalid, expected claude-cli, agy-cli, openai or openrouter"),
+pub fn build_driver(cfg: Config) -> anyhow::Result<Arc<dyn Driver>> {
+    match cfg.kind {
+        DriverKind::Agy => {
+            let bin = if cfg.binary.is_empty() { "agy".into() } else { cfg.binary };
+            let model = if cfg.model.is_empty() { "agy-default".into() } else { cfg.model };
+            Ok(Arc::new(agy::AgyDriver::new(bin, model)))
+        }
+        DriverKind::Claude => {
+            let bin = if cfg.binary.is_empty() { "claude".into() } else { cfg.binary };
+            let model = if cfg.model.is_empty() { "claude-cli".into() } else { cfg.model };
+            Ok(Arc::new(claude::ClaudeDriver::new(bin, model)))
+        }
+        DriverKind::Http => {
+            let endpoint = if cfg.endpoint.is_empty() {
+                "https://openrouter.ai/api/v1/chat/completions".into()
+            } else {
+                cfg.endpoint
+            };
+            let model = if cfg.model.is_empty() { "gpt-4o-mini".into() } else { cfg.model };
+            Ok(Arc::new(http::HttpDriver::new(endpoint, cfg.api_key, model)))
+        }
     }
 }

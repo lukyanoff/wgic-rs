@@ -1,50 +1,51 @@
-//! `Screen`: monitors through the cross-platform `xcap` crate.
-//! Windows: GDI/DXGI, macOS: CoreGraphics, Linux: X11 or Wayland (xcap picks the mechanism itself).
+use crate::drivers::{CaptureOutput, Driver};
+use async_trait::async_trait;
+use image::ImageFormat;
+use sdk::RpcError;
+use std::io::Cursor;
 
-use connectrpc::ConnectError;
-use contracts::proto::sensor::v1::DeviceInfo;
-use xcap::Monitor;
+pub struct ScreenDriver {
+    index: u32,
+}
 
-use super::{FrameSource, RawFrame, device, pick_device};
+impl ScreenDriver {
+    pub fn new(index: u32) -> Self {
+        Self { index }
+    }
+}
 
-/// Stateless: every call lists the monitors again, so plugging one in needs no restart.
-pub struct Screen;
-
-impl FrameSource for Screen {
-    fn kind(&self) -> &'static str {
+#[async_trait]
+impl Driver for ScreenDriver {
+    fn kind_name(&self) -> &'static str {
         "screen"
     }
 
-    fn list_devices(&self) -> Result<Vec<DeviceInfo>, ConnectError> {
-        Ok(devices(&monitors()?))
-    }
+    async fn capture(&self) -> Result<CaptureOutput, RpcError> {
+        let idx = self.index as usize;
+        tokio::task::spawn_blocking(move || {
+            let monitors = xcap::Monitor::all()
+                .map_err(|e| RpcError::internal(format!("xcap monitor list failed: {e}")))?;
+            let monitor = monitors.get(idx).ok_or_else(|| {
+                RpcError::not_found(format!(
+                    "screen index {idx} not found (available: {})",
+                    monitors.len()
+                ))
+            })?;
+            let frame = monitor
+                .capture_image()
+                .map_err(|e| RpcError::internal(format!("screen capture failed: {e}")))?;
 
-    fn grab(&self, wanted: Option<u32>) -> Result<RawFrame, ConnectError> {
-        let monitors = monitors()?;
-        let devices = devices(&monitors);
-        let position = pick_device(&devices, wanted)?;
-        let pixels = match monitors[position].capture_image() {
-            Ok(pixels) => pixels,
-            Err(error) => return Err(ConnectError::internal(format!("screen capture failed: {error}"))),
-        };
-        let (width, height) = (pixels.width(), pixels.height());
-        Ok(RawFrame { rgba: pixels.into_raw(), width, height, device: devices[position].clone() })
-    }
-}
+            let mut buf = Vec::new();
+            frame
+                .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
+                .map_err(|e| RpcError::internal(format!("png encode failed: {e}")))?;
 
-/// No display (CI, containers, a locked session) is `unavailable`.
-fn monitors() -> Result<Vec<Monitor>, ConnectError> {
-    match Monitor::all() {
-        Ok(monitors) => Ok(monitors),
-        Err(error) => Err(ConnectError::unavailable(format!("no screen: {error}"))),
+            Ok(CaptureOutput {
+                data: buf,
+                mime_type: "image/png".to_string(),
+            })
+        })
+        .await
+        .map_err(|e| RpcError::internal(format!("screen capture task panicked: {e}")))?
     }
-}
-
-/// xcap's getters can fail one by one; a name that can't be read stays empty.
-fn devices(monitors: &[Monitor]) -> Vec<DeviceInfo> {
-    let mut devices = Vec::new();
-    for (index, monitor) in monitors.iter().enumerate() {
-        devices.push(device(index, monitor.name().unwrap_or_default(), monitor.is_primary().unwrap_or(false)));
-    }
-    devices
 }

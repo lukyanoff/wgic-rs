@@ -1,30 +1,28 @@
-//! `FakeSource`: a stand-in driver for tests, so they need no screen or camera.
+use crate::drivers::{CaptureOutput, Driver};
+use async_trait::async_trait;
+use image::{ImageBuffer, ImageFormat, Rgba};
+use sdk::RpcError;
+use std::io::Cursor;
 
-use connectrpc::ConnectError;
-use contracts::proto::sensor::v1::DeviceInfo;
+pub struct FakeDriver;
 
-use super::{FrameSource, RawFrame, device, pick_device};
-
-/// Two fake 4x2 devices, `LEFT` (0) and `RIGHT` (1, the default). With `error` set, every call fails with it.
-pub struct FakeSource {
-    pub error: Option<ConnectError>,
-}
-
-impl FrameSource for FakeSource {
-    fn kind(&self) -> &'static str {
-        "screen"
+#[async_trait]
+impl Driver for FakeDriver {
+    fn kind_name(&self) -> &'static str {
+        "fake"
     }
 
-    fn list_devices(&self) -> Result<Vec<DeviceInfo>, ConnectError> {
-        match &self.error {
-            Some(error) => Err(error.clone()),
-            None => Ok(vec![device(0, "LEFT".into(), false), device(1, "RIGHT".into(), true)]),
-        }
-    }
+    async fn capture(&self) -> Result<CaptureOutput, RpcError> {
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_fn(32, 32, |x, y| {
+            Rgba([(x * 8) as u8, (y * 8) as u8, 180, 255])
+        });
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
+            .map_err(|e| RpcError::internal(format!("fake png encode error: {e}")))?;
 
-    fn grab(&self, wanted: Option<u32>) -> Result<RawFrame, ConnectError> {
-        let devices = self.list_devices()?;
-        let position = pick_device(&devices, wanted)?;
-        Ok(RawFrame { rgba: vec![0; 4 * 2 * 4], width: 4, height: 2, device: devices[position].clone() })
+        Ok(CaptureOutput {
+            data: buf,
+            mime_type: "image/png".to_string(),
+        })
     }
 }

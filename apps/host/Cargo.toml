@@ -1,22 +1,17 @@
 [package]
 name = "host"
-description = "Box 4: composition root. The only place where services and platform meet."
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-kernel.workspace = true
-platform.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-
-# services (one line per service)
-greet.workspace = true
-sensor.workspace = true
-llm_caller.workspace = true
-visioner.workspace = true
-
-[lints]
-workspace = true
+anyhow = "1"
+async-nats = "0.39"
+clap = { version = "4", features = ["derive", "env"] }
+contracts = { path = "../../crates/contracts" }
+llm_caller = { path = "../../services/llm_caller" }
+sdk = { path = "../../crates/sdk" }
+sensor = { path = "../../services/sensor" }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+visioner = { path = "../../services/visioner" }

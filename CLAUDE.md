@@ -1,71 +1,70 @@
-# connect-rust-example — Cognitive Boxes
+# WGIC-RS Architecture & AI Agent Rules
 
-Rust Connect/gRPC services that also run over NATS micro, plus a React playground (`web/`).
-The goal of the layout is **low cognitive depth**: you can change one box without reading the others.
+This repository implements a distributed, NATS-native actor/service mesh in Rust using **strict SOLID principles**, **Constructor Dependency Injection**, and **Isolated Cognitive Boxes**.
 
-## Boxes (dependency arrows point down only)
+## 1. The 4 Cognitive Boxes (Strict Dependency Graph)
 
-| Box | Path | Owns | May depend on |
-|---|---|---|---|
-| 0 contracts | `proto/`, `crates/contracts` | `.proto` + generated code | — |
-| 1 kernel | `crates/kernel` | `Module`, `Deps`, `Channel`, `Logger`, `Metrics`, `Transport`, `module()`, `stream_from()` | — |
-| 2 platform | `crates/platform` | HTTP + NATS adapters, telemetry, host runner | kernel |
-| 3 services | `services/<name>` | one service: `config.rs` + `handler.rs` (+ `drivers/` when pluggable) | contracts, kernel |
-| 4 apps | `apps/host` | wiring (composition root) | anything |
-| 5 e2e | `tests/e2e` | black-box tests against the real `host` binary | contracts, kernel, platform |
-
-`scripts/check-boxes.sh` enforces these arrows. Each box has its own `CLAUDE.md`: read only the one for the box you work in.
-
-## Rules
-
-1. **Stay in one box per change.** A service change touches `services/<name>/` (and its proto / e2e file). An
-   infrastructure change touches `crates/platform/` only. `apps/host` changes only to add a service line.
-2. **Services never import `platform` or another service.** To call another service instance by id, use its
-   generated client: `SensorServiceClient::new(deps.channel_to("screen-1"), deps.client_config())` (over NATS the
-   id is the target host's `NATS_PREFIX`).
-3. **Every service has 3 test layers**: unit (`src/handler_tests.rs`, pure helpers), integration
-   (`services/<name>/tests/*.rs`, in-process via `Deps::in_process`), e2e (`tests/e2e/tests/<name>.rs`, HTTP **and** NATS).
-4. **Write simple code** — use the `simple-code` skill for every code change. Readers are C#/Python/TS developers.
-5. **Tests and code live in separate files.** `foo.rs` ends with
-   `#[cfg(test)] #[path = "foo_tests.rs"] mod tests;` and the tests go in `foo_tests.rs` (next to it,
-   starting with `use super::*;`). No inline `mod tests { ... }` (checked by `check-boxes.sh`).
-6. **Logging and metrics are injected, never static.** A handler gets `deps.logger("svc")` and
-   `deps.metrics("svc")` in its `new(deps)`; services must not depend on `tracing`/`opentelemetry`
-   (checked). Platform already records every RPC's duration/status — services add only business metrics.
-7. **Generated code is never edited by hand** (`crates/contracts/src/gen/`). Change `.proto`, run `npm run gen`.
-8. **Only the services in `SERVICES` are built, and bad config stops the host.** `SERVICES` is required; each
-   service reads its settings in `module(deps)` with `deps.setting(..)` / `deps.required(..)`, which panic with a
-   clear message. No "not configured" fallbacks.
-
-## Commands
-
-```sh
-podman compose up -d              # NATS, OTel collector, Jaeger :16686, Prometheus :9090, Grafana :3000
-scripts/run-all.sh [--prod]       # build + run everything on NATS (--prod: release build, low memory per process)
-scripts/verify.sh                 # definition of done: fmt, clippy, boxes, buf lint, all tests, web
-cargo test -p greet               # one service: unit + integration (no network)
-cargo test -p platform            # infrastructure only, no services compiled
-cargo test -p e2e --test greet    # one service end-to-end
-npm run gen                       # after any .proto change
-SERVICES=greet cargo run -p host  # run one service (SERVICES is required: greet,sensor,llm_caller,visioner)
-scripts/run-sensors.sh            # 4 `sensor` instances (screen-1/2, cam-1/2), NATS only, one process each
-scripts/run-llm-callers.sh        # 4 llm_caller instances (llm-claude/agy/openai/openrouter), NATS only
-scripts/run-visioners.sh          # vision-1: screen-1 + llm-claude,llm-agy in parallel, NATS only
-curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' localhost:8080/greet.v1.GreetService/Greet
+```text
+apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
+  ├──> services/* (Box 3: Business Logic — sensor, llm_caller, visioner)
+  │      ├──> crates/sdk
+  │      └──> crates/contracts
+  └──> crates/sdk (Box 2: Infrastructure — NATS RPC, StreamFrame, CAS StateStore, Telemetry)
+         └──> crates/contracts (Box 1: Protobuf DTOs + Service/Client Traits)
 ```
 
-## Definition of done
+### Boundary Rules (Enforced by `scripts/check-boxes.sh`)
+1. **`crates/contracts`**: Contains ONLY `prost` Protobuf structs, service traits (`ISensorService`, `ILlmCallerService`, `IVisionerService`), NATS client adapters, and `RawRpcEndpoint` dispatchers. Must NEVER depend on `services/*` or `apps/host`.
+2. **`crates/sdk`**: Contains NATS transport (`NatsRpcClient`, `serve_endpoint`), `StreamFrame` (`0x01` Progress, `0x02` Ok, `0x03` Err), `IStateStore<S>` (Compare-And-Swap over NATS KV + `InMemoryStateStore`), `ClientRegistry<T>`, and `tracing` initialization. Must NEVER know what specific services exist.
+3. **`services/*`**: Pure, isolated domain crates.
+   - Must depend ONLY on `crates/contracts`, `crates/sdk`, and domain-specific driver libraries.
+   - Must NEVER depend on `async-nats` directly or on other `services/*` crates.
+4. **`apps/host`**: The sole **Composition Root** (analogous to `Program.cs` in .NET). Parses CLI flags (`--module`, `--instance`, `--config`), builds concrete drivers/registries/KV stores, injects them into service constructors, and mounts endpoints on NATS.
 
-`scripts/verify.sh` is green. A Stop hook runs it automatically and blocks finishing while it fails
-(it skips when nothing changed since the last green run). Don't weaken a check to make it pass —
-fix the code, or ask the human.
+---
 
-## Add a service (checklist)
+## 2. Mandatory Coding Rules for AI Agents (C# / SOLID Style in Rust)
 
-1. `proto/<name>/v1/<name>.proto` → `npm run gen` → add a `pub mod` block in `crates/contracts/src/lib.rs`.
-2. Copy the shape of `services/greet/` (`lib.rs`, `handler.rs`, `handler_tests.rs`, `tests/rpc.rs`, `CLAUDE.md`,
-   `Cargo.toml`); add `config.rs` when it has settings.
-3. Add `<name>.workspace = true` to `apps/host/Cargo.toml` + root `[workspace.dependencies]`, and one line in
-   `ALL_SERVICES` in `apps/host/src/main.rs`.
-4. Add `tests/e2e/tests/<name>.rs` (HTTP + NATS).
-5. `scripts/verify.sh`.
+1. **True Constructor DI Only (No Service Locator):**
+   - Never pass a `Deps` or `Context` bag into handler methods.
+   - Every service handler (`SensorHandler`, `LlmCallerHandler`, `VisionerHandler`) must receive all external dependencies (`Arc<dyn Driver>`, `Arc<dyn IStateStore<S>>`, `Arc<dyn ClientRegistry<dyn IService>>`) via `pub fn new(...)`.
+2. **Unified RPC Signature with `ProgressSender`:**
+   - Do not split unary vs. streaming traits. Every RPC trait method takes `(req: Req, progress: ProgressSender) -> Result<Res, RpcError>`.
+   - Call `progress.report("stage description")` to emit real-time progress frames (`0x01`) to the caller.
+3. **Compare-And-Swap (CAS) Shared Instance State:**
+   - Every service instance owns a typed state struct persisted in NATS KV via `Arc<dyn IStateStore<State>>`.
+   - Always mutate state using `self.state.update_cas(Box::new(|s| { ... })).await` so multiple High-Availability (HA) replicas sharing an `--instance` ID never overwrite each other's updates.
+4. **Standard `tracing` Only (Zero Custom Logger/Meter Boilerplate):**
+   - Never create custom `Logger` or `Meter` traits.
+   - Annotate RPC methods with `#[tracing::instrument(skip(self, req, progress))]` and log events using standard `tracing::info!`, `tracing::warn!`, and `tracing::error!`.
+5. **No Explicit Lifetimes in Business Logic:**
+   - Keep structs and traits `'static` using owned types (`String`, `Vec<u8>`, `Arc<dyn Trait>`).
+6. **RAII Resource Cleanup:**
+   - Never manage temporary files with manual `fs::remove_file` or atomic counters. Always use `tempfile::Builder` so files are cleaned up automatically on `Drop`.
+7. **Unit Tests alongside Implementation:**
+   - Place unit tests in `src/*_tests.rs` wired via `#[cfg(test)] mod ..._tests;`.
+   - Test handlers using `InMemoryStateStore` and `MapRegistry` mocks injected via `new()`—unit tests must run in <10ms with zero network or NATS dependencies.
+
+---
+
+## 3. NATS Subject & HA Conventions
+
+- **RPC Subject:** `rpc.<module>.<instance>.<proto_package.ServiceName>.<MethodName>`
+  - Example: `rpc.visioner.default.visioner.v1.VisionerService.Capture`
+- **Queue Group (HA Load Balancing):** `q.<module>.<instance>`
+  - Multiple OS processes started with the same `--module` and `--instance` automatically share load via NATS Queue Groups and share state via NATS KV key `<module>.<instance>` in bucket `wgic_instance_state`.
+- **Wire Framing (`sdk::wire::StreamFrame`):**
+  - `0x01` + UTF-8 string -> Progress frame (0 or more per call)
+  - `0x02` + Protobuf bytes -> Terminal OK response
+  - `0x03` + `"<code>: <message>"` UTF-8 string -> Terminal Error response
+
+---
+
+## 4. Verification Workflow
+
+Before finishing any task, run:
+```bash
+./scripts/check-boxes.sh
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --exclude e2e
+```

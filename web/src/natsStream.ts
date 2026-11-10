@@ -1,65 +1,43 @@
-import { createInbox, TimeoutError, type Msg, type MsgHdrs, type NatsConnection } from '@nats-io/nats-core'
+export const KIND_PROGRESS = 0x01;
+export const KIND_OK = 0x02;
+export const KIND_ERR = 0x03;
 
-// Server-streaming RPCs over NATS, same wire format as the Rust adapter (crates/platform/src/nats/stream.rs):
-// the request goes out with a reply inbox; every reply message is one chunk of the Connect
-// streaming body, and an empty message with header `Nats-Stream-End` ends it.
+export type ParsedStreamFrame =
+  | { kind: "progress"; message: string }
+  | { kind: "ok"; payload: Uint8Array }
+  | { kind: "err"; code: string; message: string };
 
-export const STREAM_END = 'Nats-Stream-End'
+const decoder = new TextDecoder();
 
-/** Connect streaming content types: `application/connect+json` / `application/connect+proto`. */
-export function isStreaming(contentType: string | null): boolean {
-  return (contentType ?? '').trim().startsWith('application/connect+')
-}
-
-export type StreamCall = {
-  subject: string
-  body: Uint8Array
-  headers: MsgHdrs
-  idleTimeoutMs: number
-}
-
-/** The first reply (headers / error reply) plus the whole reply body as a stream. */
-export type StreamReply = { first: Msg; body: ReadableStream<Uint8Array> }
-
-export async function natsStream(nc: NatsConnection, call: StreamCall): Promise<StreamReply> {
-  const inbox = createInbox()
-  const sub = nc.subscribe(inbox)
-  const messages = sub[Symbol.asyncIterator]()
-  nc.publish(call.subject, call.body, { reply: inbox, headers: call.headers })
-  const next = async (): Promise<Msg> => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const idle = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new TimeoutError()), call.idleTimeoutMs)
-    })
-    try {
-      const result = await Promise.race([messages.next(), idle])
-      if (result.done) throw new Error(`NATS stream ${call.subject} closed`)
-      return result.value
-    } finally {
-      clearTimeout(timer)
-    }
+export function parseStreamFrame(bytes: Uint8Array): ParsedStreamFrame {
+  if (bytes.length === 0) {
+    return { kind: "err", code: "internal", message: "empty stream frame" };
   }
-  const first = await next()
-  return { first, body: bodyStream(first, next, () => sub.unsubscribe()) }
-}
+  const tag = bytes[0];
+  const body = bytes.subarray(1);
 
-function bodyStream(first: Msg, next: () => Promise<Msg>, close: () => void): ReadableStream<Uint8Array> {
-  let pending: Msg | undefined = first
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const msg = pending ?? (await next())
-        pending = undefined
-        if (msg.data.length > 0) controller.enqueue(new Uint8Array(msg.data))
-        if (msg.headers?.get(STREAM_END)) {
-          close()
-          controller.close()
-        }
-      } catch (e) {
-        close()
-        controller.error(e)
-      }
-    },
-    cancel: close,
-  })
+  if (tag === KIND_PROGRESS) {
+    return { kind: "progress", message: decoder.decode(body) };
+  }
+  if (tag === KIND_OK) {
+    return { kind: "ok", payload: body };
+  }
+  if (tag === KIND_ERR) {
+    const text = decoder.decode(body);
+    const sep = text.indexOf(": ");
+    if (sep !== -1) {
+      return {
+        kind: "err",
+        code: text.slice(0, sep),
+        message: text.slice(sep + 2),
+      };
+    }
+    return { kind: "err", code: "internal", message: text };
+  }
+
+  return {
+    kind: "err",
+    code: "internal",
+    message: `unknown stream frame tag: 0x${tag.toString(16)}`,
+  };
 }

@@ -1,59 +1,35 @@
-//! E2E: SensorService in the real `host` binary, over HTTP and over NATS.
-//!
-//! The host uses *its own* screen and camera. Without them (CI, containers) the driver answers `unavailable`
-//! or `not_found`, and a camera another app holds gives `resource_exhausted`: each still proves the RPC works.
+use contracts::{ISensorService, SensorCaptureRequest, SensorEndpoint};
+use e2e::TestEnv;
+use sdk::ProgressSender;
+use sensor::{build_driver, Config, SensorHandler, SensorInstanceState, SensorKind};
+use std::sync::Arc;
 
-use connectrpc::{ConnectError, ErrorCode};
-use contracts::proto::sensor::v1::{CaptureRequest, CaptureResponse, ListDevicesRequest, SensorServiceClient};
-use e2e::Host;
-use kernel::{Channel, Deps};
+#[tokio::test]
+async fn sensor_captures_frame_streams_progress_and_updates_kv_state() -> anyhow::Result<()> {
+    let mut env = TestEnv::connect().await?;
+    let inst = env.instance_name("fake_cam");
 
-fn client(deps: &Deps) -> SensorServiceClient<Channel> {
-    SensorServiceClient::new(deps.channel(), deps.client_config())
-}
+    let cfg = Config { kind: SensorKind::Fake, index: 0 };
+    let state = env.state_store::<SensorInstanceState>("sensor", &inst);
+    let handler = Arc::new(SensorHandler::new(build_driver(&cfg), state.clone()));
 
-async fn capture(deps: &Deps) -> Result<CaptureResponse, ConnectError> {
-    Ok(client(deps).capture(CaptureRequest::default()).await?.into_owned())
-}
+    env.mount_endpoint("sensor", &inst, Arc::new(SensorEndpoint(handler))).await?;
 
-/// A real PNG of `kind`, or one of the "no usable device here" codes.
-fn assert_png_or_no_device(result: Result<CaptureResponse, ConnectError>, kind: &str) {
-    match result {
-        Ok(response) => {
-            assert!(response.image.starts_with(&[0x89, b'P', b'N', b'G']));
-            assert_eq!(response.metadata.kind, kind);
-            assert!(response.metadata.width > 0 && response.metadata.height > 0);
-        }
-        Err(error) => {
-            let expected = [ErrorCode::Unavailable, ErrorCode::NotFound, ErrorCode::ResourceExhausted];
-            assert!(expected.contains(&error.code), "unexpected error: {error:?}");
-        }
+    let client = env.sensor_client(&inst);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let res = client.capture(SensorCaptureRequest {}, ProgressSender::new(tx)).await?;
+
+    assert!(!res.data.is_empty());
+    assert_eq!(res.mime_type, "image/png");
+
+    let mut progress_steps = Vec::new();
+    while let Ok(msg) = rx.try_recv() {
+        progress_steps.push(msg);
     }
-}
+    assert!(progress_steps.iter().any(|s| s.contains("capturing from")));
 
-#[tokio::test]
-async fn screen_captures_over_http() {
-    let host = Host::start("sensor").await;
-    assert_png_or_no_device(capture(&host.http_deps()).await, "screen");
-}
-
-#[tokio::test]
-async fn screen_captures_over_nats() {
-    let host = Host::start("sensor").await;
-    assert_png_or_no_device(capture(&host.nats_deps().await).await, "screen");
-}
-
-#[tokio::test]
-async fn camera_captures_over_nats() {
-    let host = Host::start_with_env("sensor", &[("SENSOR_KIND", "camera")]).await;
-    assert_png_or_no_device(capture(&host.nats_deps().await).await, "camera");
-}
-
-#[tokio::test]
-async fn camera_lists_devices_over_nats() {
-    let host = Host::start_with_env("sensor", &[("SENSOR_KIND", "camera")]).await;
-    match client(&host.nats_deps().await).list_devices(ListDevicesRequest::default()).await {
-        Ok(response) => assert!(response.into_owned().devices.iter().all(|d| !d.name.is_empty())),
-        Err(error) => assert_eq!(error.code, ErrorCode::Unavailable, "unexpected error: {error:?}"),
-    }
+    let saved = state.get().await?;
+    assert_eq!(saved.frames_captured, 1);
+    assert_eq!(saved.last_mime_type, "image/png");
+    Ok(())
 }

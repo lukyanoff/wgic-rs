@@ -1,18 +1,15 @@
 [package]
 name = "visioner"
-description = "Box 3: orchestrator. Screenshot from one sensor, asks several llm callers in parallel, streams progress."
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
 
-# Services depend ONLY on contracts + kernel (+ plain libraries). Never on platform,
-# another service, tracing/opentelemetry (use the injected Logger/Metrics) or anyhow.
 [dependencies]
-contracts.workspace = true
-kernel.workspace = true
-connectrpc.workspace = true
-futures.workspace = true    # join_all
-tokio.workspace = true      # timeouts, channels
+anyhow = "1"
+async-trait = "0.1"
+contracts = { path = "../../crates/contracts" }
+sdk = { path = "../../crates/sdk" }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
 
-[lints]
-workspace = true
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,26 +1,67 @@
-//! Runs the services named in `SERVICES=greet,sensor` (required). Only those are built, so each one reads
-//! (and checks) only its own settings. Transports come from the environment: `ADDR`, `HTTP_DISABLED`,
-//! `NATS_URL` (see HUMAN.md).
+use clap::Parser;
+use contracts::{LlmCallerEndpoint, SensorEndpoint, VisionerEndpoint};
+use sdk::state::NatsKvStateStore;
+use sdk::{NatsLlmRegistry, NatsSensorRegistry, RawRpcEndpoint};
+use std::sync::Arc;
 
-use kernel::ModuleFactory;
-
-/// Every service this host knows: its name and constructor. Add one line per new service.
-const ALL_SERVICES: [(&str, ModuleFactory); 4] = [
-    ("greet", greet::module),
-    ("sensor", sensor::module),
-    ("llm_caller", llm_caller::module),
-    ("visioner", visioner::module),
-];
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(long)]
+    module: String,
+    #[arg(long)]
+    instance: String,
+    #[arg(long, default_value = "{}")]
+    config: String,
+    #[arg(long, env = "WGIC_NATS_URL", default_value = "nats://127.0.0.1:4222")]
+    nats_url: String,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _telemetry = platform::init_telemetry("host");
-    let deps = platform::deps_from_env().await?;
-    let wanted = std::env::var("SERVICES").unwrap_or_default();
-    let modules = platform::build_modules(&ALL_SERVICES, &wanted, &deps)?;
-    if let Err(e) = platform::run(modules).await {
-        tracing::error!(error = %e, "host stopped");
-        return Err(e);
-    }
+    let args = Args::parse();
+    let service_id = format!("{}/{}", args.module, args.instance);
+    sdk::telemetry::init_telemetry(&service_id);
+
+    let nc = async_nats::connect(&args.nats_url).await?;
+    let js = async_nats::jetstream::new(nc.clone());
+
+    let kv = js
+        .create_key_value(async_nats::jetstream::kv::Config {
+            bucket: "wgic_instance_state".into(),
+            history: 1,
+            ..Default::default()
+        })
+        .await?;
+
+    let state_key = format!("{}.{}", args.module, args.instance);
+
+    let endpoint: Arc<dyn RawRpcEndpoint> = match args.module.as_str() {
+        "sensor" => {
+            let cfg: sensor::Config = serde_json::from_str(&args.config)?;
+            let driver = sensor::build_driver(&cfg);
+            let state = Arc::new(NatsKvStateStore::new(kv, state_key));
+            Arc::new(SensorEndpoint(Arc::new(sensor::SensorHandler::new(driver, state))))
+        }
+        "llm_caller" => {
+            let cfg: llm_caller::Config = serde_json::from_str(&args.config)?;
+            let driver = llm_caller::build_driver(cfg)?;
+            let state = Arc::new(NatsKvStateStore::new(kv, state_key));
+            Arc::new(LlmCallerEndpoint(Arc::new(llm_caller::LlmCallerHandler::new(driver, state))))
+        }
+        "visioner" => {
+            let cfg: visioner::Config = serde_json::from_str(&args.config)?;
+            let state = Arc::new(NatsKvStateStore::new(kv, state_key));
+            let sensors = Arc::new(NatsSensorRegistry::new(nc.clone()));
+            let llms = Arc::new(NatsLlmRegistry::new(nc.clone()));
+            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(
+                cfg, state, sensors, llms,
+            ))))
+        }
+        other => anyhow::bail!("unknown module: {other}"),
+    };
+
+    let _handles = sdk::transport::serve_endpoint(nc, &args.module, &args.instance, endpoint).await?;
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("shutting down {}", service_id);
     Ok(())
 }

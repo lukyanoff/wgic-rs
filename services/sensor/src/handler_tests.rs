@@ -1,23 +1,29 @@
-//! Unit tests for the helpers in `handler.rs`.
-
-use connectrpc::ErrorCode;
-
 use super::*;
-use crate::drivers::device;
+use crate::drivers::fake::FakeDriver;
+use sdk::state::InMemoryStateStore;
 
-fn frame(rgba: Vec<u8>) -> RawFrame {
-    RawFrame { rgba, width: 2, height: 1, device: device(0, "A".into(), true) }
-}
+#[tokio::test]
+async fn sensor_handler_captures_fake_frame_and_updates_cas_state() {
+    let state = Arc::new(InMemoryStateStore::new(SensorInstanceState::default()));
+    let handler = SensorHandler::new(Arc::new(FakeDriver), state.clone());
 
-#[test]
-fn encodes_png_and_jpeg() {
-    let pixels = vec![255; 2 * 4];
-    assert!(encode(&frame(pixels.clone()), ImageFormat::Png).unwrap().starts_with(&[0x89, b'P', b'N', b'G']));
-    assert!(encode(&frame(pixels), ImageFormat::Jpeg).unwrap().starts_with(&[0xFF, 0xD8]));
-}
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let res = handler
+        .capture(SensorCaptureRequest {}, ProgressSender::new(tx))
+        .await
+        .unwrap();
 
-#[test]
-fn wrong_pixel_count_is_internal() {
-    let error = encode(&frame(vec![0; 3]), ImageFormat::Png).unwrap_err();
-    assert_eq!(error.code, ErrorCode::Internal);
+    assert_eq!(res.mime_type, "image/png");
+    assert!(!res.data.is_empty());
+
+    let updated = state.get().await.unwrap();
+    assert_eq!(updated.frames_captured, 1);
+    assert_eq!(updated.last_mime_type, "image/png");
+    assert_eq!(updated.last_bytes_size, res.data.len());
+
+    let mut steps = Vec::new();
+    while let Ok(s) = rx.try_recv() {
+        steps.push(s);
+    }
+    assert_eq!(steps.len(), 2);
 }
