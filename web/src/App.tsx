@@ -9,7 +9,7 @@ import { TracePanel } from './TracePanel'
 const DEFAULT_NATS_WS = 'ws://localhost:9222'
 
 const PRESET_INSTANCES: Record<string, string[]> = {
-  'sensor.v1.SensorService': ['fake', 'screen', 'cam'],
+  'sensor.v1.SensorService': ['screen', 'cam', 'usbcam', 'fake'],
   'llm_caller.v1.LlmCallerService': ['agy', 'claude', 'openai'],
   'visioner.v1.VisionerService': ['default'],
 }

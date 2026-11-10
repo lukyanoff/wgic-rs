@@ -12,6 +12,7 @@ service SensorService {
 
 message CaptureRequest {}
 
+// data is a JPEG (screen, camera; long edge ≤ 1568 px) or a PNG (fake); mime_type says which.
 message CaptureResponse {
   bytes data = 1;
   string mime_type = 2;

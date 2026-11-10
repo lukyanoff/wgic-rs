@@ -2,7 +2,7 @@ import { create, toJson, type DescMessage } from '@bufbuild/protobuf'
 
 const DEFAULTS: Record<string, Record<string, unknown>> = {
   'visioner.v1.CaptureRequest': {
-    sensor: 'fake',
+    sensor: 'screen', // or 'cam' / 'usbcam' / 'fake'
     llmCaller: 'agy',
     systemPrompt: 'You are a helpful visual assistant.',
     textPrompt: '',

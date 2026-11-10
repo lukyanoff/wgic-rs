@@ -1,11 +1,12 @@
-use crate::drivers::{CaptureOutput, Driver};
+use crate::drivers::{CaptureOutput, Driver, encode_frame};
 use async_trait::async_trait;
-use image::ImageFormat;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::Camera;
 use sdk::RpcError;
-use std::io::Cursor;
+
+/// Frames read per capture; only the last is kept (see `capture`).
+const WARMUP_FRAMES: usize = 5;
 
 pub struct CameraDriver {
     index: u32,
@@ -31,22 +32,16 @@ impl Driver for CameraDriver {
                 .map_err(|e| RpcError::internal(format!("camera init failed: {e}")))?;
             cam.open_stream()
                 .map_err(|e| RpcError::internal(format!("camera open_stream failed: {e}")))?;
-            let frame = cam
-                .frame()
-                .map_err(|e| RpcError::internal(format!("camera frame failed: {e}")))?;
+            // The first frames after opening are often dark while auto-exposure settles; keep the last one.
+            let mut frame = None;
+            for _ in 0..WARMUP_FRAMES {
+                frame = Some(cam.frame().map_err(|e| RpcError::internal(format!("camera frame failed: {e}")))?);
+            }
             let decoded = frame
+                .expect("WARMUP_FRAMES > 0")
                 .decode_image::<RgbFormat>()
                 .map_err(|e| RpcError::internal(format!("camera decode failed: {e}")))?;
-
-            let mut buf = Vec::new();
-            decoded
-                .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
-                .map_err(|e| RpcError::internal(format!("png encode failed: {e}")))?;
-
-            Ok(CaptureOutput {
-                data: buf,
-                mime_type: "image/png".to_string(),
-            })
+            encode_frame(image::DynamicImage::ImageRgb8(decoded))
         })
         .await
         .map_err(|e| RpcError::internal(format!("camera task panicked: {e}")))?

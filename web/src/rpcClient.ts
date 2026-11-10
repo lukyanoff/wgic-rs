@@ -1,5 +1,5 @@
 import { create, fromBinary, toBinary, toJson } from '@bufbuild/protobuf'
-import { connect, createInbox, headers as natsHeaders, type NatsConnection, type KV } from 'nats.ws'
+import { connect, createInbox, headers as natsHeaders, type KV, type NatsConnection } from 'nats.ws'
 import { parseStreamFrame } from './natsStream'
 import { startRpcSpan } from './otel'
 import type { MethodEntry } from './schema'
@@ -18,6 +18,9 @@ export interface StreamCallResult {
   traceId: string
   durationMs: number
 }
+
+/** Browser-side cap for one call; a visioner call waits on a sensor plus an LLM (each up to 60 s server-side). */
+const RPC_TIMEOUT_MS = 150_000
 
 let cachedConn: { url: string; nc: NatsConnection } | null = null
 
@@ -48,38 +51,54 @@ export async function callNatsRpc(opts: StreamCallOptions): Promise<StreamCallRe
   const start = performance.now()
   try {
     const nc = await getNatsConnection(natsUrl)
-    const inbox = createInbox()
-    const sub = nc.subscribe(inbox)
-
-    const hdrs = natsHeaders()
-    hdrs.set('traceparent', span.traceparent)
-
-    nc.publish(subject, reqBytes, { reply: inbox, headers: hdrs })
-
-    for await (const rawMsg of sub) {
-      const frame = parseStreamFrame(rawMsg.data)
-      if (frame.kind === 'progress') {
-        onProgress(frame.message)
-      } else if (frame.kind === 'ok') {
-        sub.unsubscribe()
-        const decoded = fromBinary(entry.method.output, frame.payload)
-        const responseJson = JSON.stringify(toJson(entry.method.output, decoded), null, 2)
-        span.endOk()
-        return {
-          responseJson,
-          traceId: span.traceId,
-          durationMs: Math.round(performance.now() - start),
-        }
-      } else {
-        sub.unsubscribe()
-        throw new Error(`${frame.code}: ${frame.message}`)
-      }
+    const req = { subject, data: reqBytes, traceparent: span.traceparent }
+    const payload = await sendAndAwaitReply(nc, req, onProgress)
+    const decoded = fromBinary(entry.method.output, payload)
+    span.endOk()
+    return {
+      responseJson: JSON.stringify(toJson(entry.method.output, decoded), null, 2),
+      traceId: span.traceId,
+      durationMs: Math.round(performance.now() - start),
     }
-    throw new Error('stream closed without terminal frame')
   } catch (err) {
     span.endErr(err)
     throw err
   }
+}
+
+/**
+ * Publishes the request with a private reply inbox, forwards progress frames, and resolves with the Ok payload.
+ * Rejects on an Err frame, when nothing listens on `subject` (NATS 503 "no responders"), or after RPC_TIMEOUT_MS.
+ */
+async function sendAndAwaitReply(
+  nc: NatsConnection,
+  req: { subject: string; data: Uint8Array; traceparent: string },
+  onProgress: (step: string) => void,
+): Promise<Uint8Array> {
+  const { subject } = req
+  const sub = nc.subscribe(createInbox())
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    sub.unsubscribe()
+  }, RPC_TIMEOUT_MS)
+  const headers = natsHeaders()
+  headers.set('traceparent', req.traceparent)
+  nc.publish(subject, req.data, { reply: sub.getSubject(), headers })
+
+  try {
+    for await (const msg of sub) {
+      if (msg.headers?.code === 503) throw new Error(`unavailable: nothing is listening on ${subject}`)
+      const frame = parseStreamFrame(msg.data)
+      if (frame.kind === 'ok') return frame.payload
+      if (frame.kind === 'err') throw new Error(`${frame.code}: ${frame.message}`)
+      onProgress(frame.message)
+    }
+  } finally {
+    clearTimeout(timer)
+    sub.unsubscribe()
+  }
+  throw new Error(timedOut ? `deadline_exceeded: no reply in ${RPC_TIMEOUT_MS / 1000}s` : 'stream closed early')
 }
 
 /** Every key of the `wgic_instance_state` KV bucket, decoded as JSON (or raw text). `{}` when NATS is down. */

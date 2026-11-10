@@ -1,8 +1,6 @@
-use crate::drivers::{CaptureOutput, Driver};
+use crate::drivers::{CaptureOutput, Driver, encode_frame};
 use async_trait::async_trait;
-use image::ImageFormat;
 use sdk::RpcError;
-use std::io::Cursor;
 
 pub struct ScreenDriver {
     index: u32,
@@ -35,15 +33,7 @@ impl Driver for ScreenDriver {
                 .capture_image()
                 .map_err(|e| RpcError::internal(format!("screen capture failed: {e}")))?;
 
-            let mut buf = Vec::new();
-            frame
-                .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
-                .map_err(|e| RpcError::internal(format!("png encode failed: {e}")))?;
-
-            Ok(CaptureOutput {
-                data: buf,
-                mime_type: "image/png".to_string(),
-            })
+            encode_frame(image::DynamicImage::ImageRgba8(frame))
         })
         .await
         .map_err(|e| RpcError::internal(format!("screen capture task panicked: {e}")))?

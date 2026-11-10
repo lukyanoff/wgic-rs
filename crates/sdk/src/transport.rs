@@ -195,5 +195,11 @@ async fn handle_request(
         Ok(bytes) => StreamFrame::Ok(bytes).encode(),
         Err(err) => StreamFrame::Err(err).encode(),
     };
-    let _ = nc.publish(reply, final_frame.into()).await;
+    // A failed terminal publish (e.g. a payload over the NATS 1 MB limit) would leave the caller waiting forever,
+    // so tell it why with a small Err frame instead.
+    if let Err(e) = nc.publish(reply.clone(), final_frame.into()).await {
+        tracing::error!(method = %method, error = %e, "failed to publish RPC reply");
+        let err = RpcError::internal(format!("reply could not be sent: {e}"));
+        let _ = nc.publish(reply, StreamFrame::Err(err).encode().into()).await;
+    }
 }
