@@ -64,6 +64,72 @@ cd web && npm run dev        # http://localhost:5173
   fields. Press Ctrl+Enter to send. Headers go one per line as `key: value`.
 - **History:** the last 20 calls. Click one to restore it.
 
+## Screen and camera sensors
+
+`screen_sensor` and `camera_sensor` take a picture and return it with metadata (`sensor.v1.ImageMetadata`).
+Both are built on `libs/sensor_base`, so they share config, encoding, logs/metrics and error codes.
+Each has `Capture` and `ListDevices`.
+
+**One instance per device.** Each sensor process captures one device, chosen by config. To run all four
+(2 screens, 2 cameras), each in its own process with its own port and NATS prefix:
+
+```sh
+podman compose up -d
+scripts/run-sensors.sh       # screen-1 :8081, screen-2 :8082, cam-1 :8083, cam-2 :8084 (Ctrl+C stops all)
+curl -s -H 'Content-Type: application/json' -d '{}' localhost:8083/camera_sensor.v1.CameraSensorService/Capture | jq .metadata
+podman compose run --rm nats-box nats req cam-2.camera_sensor.v1.CameraSensorService.Capture '{}'
+```
+
+In the playground, pick `screen-1 http (8081)` … `cam-2 nats` (click "Reset to servers.json" once to get them).
+Call `ListDevices` to see which index/name each device has, then edit the `*_DEVICE` lines in `scripts/run-sensors.sh`.
+
+| Variable (screen / camera) | Values |
+|---|---|
+| `SCREEN_SENSOR_ID` / `CAMERA_SENSOR_ID` | instance id in metadata, logs, metrics (default `screen` / `camera`) |
+| `SCREEN_SENSOR_DEVICE` / `CAMERA_SENSOR_DEVICE` | `default`, `0`, `1`, …, `name:<NAME>` |
+| `SCREEN_SENSOR_FORMAT` / `CAMERA_SENSOR_FORMAT` | `png` (default), `jpeg`, `jpeg:<1..100>` |
+| `SCREEN_SENSOR_DRIVER` | `auto` (= xcap), `xcap`, `linux-x11` |
+| `CAMERA_SENSOR_DRIVER` | `auto`, `nokhwa-v4l`, `nokhwa-avfoundation`, `nokhwa-msmf` |
+| `CAMERA_SENSOR_RESOLUTION` | `max` (default) or `<W>x<H>` |
+| `CAMERA_SENSOR_WARMUP_FRAMES` | frames dropped before the picture (default 5) |
+
+## LLM caller
+
+`llm_caller` sends a chat (`[{role, content}]`, plus an optional JSON Schema) to an LLM.
+Its one RPC, `Call`, is **server-streaming**: it sends `progress` messages (`started` /
+`thinking` / `writing`, with the text received so far), then one `result` (the validated
+JSON, the raw text and metadata such as tokens, cost and duration).
+
+One service, four injected drivers. Each process is one instance with a fixed driver,
+model, effort and temperature:
+
+| Driver | How | Effort | Temperature |
+|---|---|---|---|
+| `claude-cli` | `claude -p --output-format stream-json`, no tools | `low`…`max` | no |
+| `agy-cli` | `agy -p --output-format stream-json --sandbox --mode plan` | `low`…`max` | no |
+| `openai` | `POST /v1/responses`, SSE (`OPENAI_API_KEY`) | `minimal`…`high` | yes |
+| `openrouter` | `POST /api/v1/chat/completions`, SSE (`OPENROUTER_API_KEY`) | `minimal`…`high` | yes |
+
+```sh
+podman compose up -d
+scripts/run-llm-callers.sh    # llm-claude :8091, llm-agy :8092, llm-openai :8093, llm-openrouter :8094
+curl -N -H 'Content-Type: application/connect+json' --data-binary @<(printf '\x00\x00\x00\x00\x2d{"messages":[{"role":"user","content":"hi"}]}') \
+  localhost:8091/llm_caller.v1.LlmCallerService/Call
+```
+
+In the playground, pick `llm-claude http (8091)` … `llm-openrouter nats` and call `Call`.
+The progress messages appear one by one.
+
+| Variable | Values |
+|---|---|
+| `LLM_CALLER_ID` | instance id in metadata, logs and metrics (default `llm`) |
+| `LLM_CALLER_DRIVER` | `claude-cli`, `agy-cli`, `openai`, `openrouter`. Unset: every call answers `failed_precondition` |
+| `LLM_CALLER_MODEL` | required, e.g. `claude-sonnet-5-5`, `gemini-3.8-flash-medium` (`agy models` lists them) |
+| `LLM_CALLER_EFFORT` | see the table above (default `medium`) |
+| `LLM_CALLER_TEMPERATURE` | `0..2`, HTTP drivers only. Set on a CLI driver, it stops the host at startup |
+| `LLM_CALLER_TIMEOUT_SECS` | whole-call limit (default 300) |
+| `LLM_CALLER_BASE_URL` / `LLM_CALLER_CLI_PATH` | replace the provider URL or the CLI program (tests, proxies) |
+
 ## NATS micro
 
 Every service can also be hosted as a NATS micro service and called over NATS. No
@@ -90,14 +156,15 @@ Server environment variables:
 | `NATS_URL` | (unset, so NATS is off) | NATS server URL |
 | `NATS_PREFIX` | `rpc` | Subject prefix |
 | `NATS_SERVICE_VERSION` | crate version | Micro service version |
+| `NATS_INSTANCE` | (unset) | Appended to each micro service name (`screen_sensor-screen-1`), so one module run for different devices shows as separate services. Unset: replicas share a name and load-balance |
 | `HTTP_DISABLED` | (unset) | `1` turns the HTTP listener off |
 | `SERVICES` | `all` | Comma-separated modules to run, e.g. `greet,billing` |
 | `UPSTREAM_ADDR` | `ADDR` | Where services call other services over HTTP when `NATS_URL` is unset |
 
-Each module is its own NATS micro service, named after the module (`greet`). All
+Each module is its own NATS micro service, named after the module (`greet`, or `greet-<NATS_INSTANCE>`). All
 instances running that module share the name and load-balance.
 
-**Wire format.** NATS carries Connect unary messages:
+**Wire format.** NATS carries Connect unary and server-streaming messages:
 
 - **Subject:** `rpc.<package.Service>.<Method>`, e.g. `rpc.greet.v1.GreetService.Greet`
 - **Endpoint name:** `GreetService-Greet`. Endpoint metadata `rpc` holds the RPC
@@ -107,7 +174,15 @@ instances running that module share the name and load-balance.
   passed through as RPC metadata.
 - **Error:** headers `Nats-Service-Error`, `Nats-Service-Error-Code` (HTTP
   status) and `Connect-Code`.
-- **Limits:** unary only, because request/reply is unary.
+- **Server streaming:** the request has `Content-Type: application/connect+json` (or
+  `+proto`) and a Connect-enveloped body, as an HTTP streaming call does. The server
+  publishes every chunk of the Connect streaming body (envelopes, ending with the
+  END_STREAM envelope) to the request's reply inbox. The first message also carries
+  the response headers. It then sends an empty message with header `Nats-Stream-End: 1`.
+  A failure before the stream starts comes back as an ordinary error reply. The Rust
+  `NatsTransport` and the playground both read such replies; `nats req` shows only the
+  first message.
+- **Limits:** no client or bidi streaming (browsers can't send those anyway).
 
 **Playground.** Pick the `nats ws` server (`ws://localhost:9222`, mode `nats`).
 If you used the playground before, click "Reset to servers.json" to get it.

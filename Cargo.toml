@@ -1,5 +1,5 @@
 # Cognitive Boxes workspace. Dependency arrows point DOWN only (see CLAUDE.md):
-#   apps/*  ->  services/*  ->  kernel, contracts
+#   apps/*  ->  services/*  ->  libs/*  ->  kernel, contracts
 #   apps/*  ->  platform    ->  kernel
 [workspace]
 resolver = "3"
@@ -7,6 +7,7 @@ members = [
     "crates/contracts",
     "crates/kernel",
     "crates/platform",
+    "libs/*",
     "services/*",
     "apps/*",
     "tests/e2e",
@@ -24,6 +25,9 @@ kernel = { path = "crates/kernel" }
 platform = { path = "crates/platform" }
 greet = { path = "services/greet" }
 screen_sensor = { path = "services/screen_sensor" }
+camera_sensor = { path = "services/camera_sensor" }
+llm_caller = { path = "services/llm_caller" }
+sensor_base = { path = "libs/sensor_base" }
 
 # third party
 anyhow = "1.0.104"
@@ -37,12 +41,14 @@ futures = "0.3.34"
 http = "1.5.0"
 http-body = "1.1.0"
 http-body-util = "0.1.5"
+nokhwa = { version = "0.10.11", default-features = false, features = ["decoding"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 opentelemetry = { version = "0.33", features = ["metrics"] }
 opentelemetry-appender-tracing = "0.33"
 opentelemetry-http = "0.33"
 opentelemetry-otlp = { version = "0.33", features = ["metrics"] }
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio", "metrics"] }
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "stream", "json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.54.1", features = ["full"] }
@@ -52,6 +58,7 @@ tracing = "0.1.44"
 tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "registry"] }
 uuid = { version = "1.29.2", features = ["v4"] }
+v4l = "0.14.0"
 x11rb = { version = "0.14.0", features = ["randr"] }
 xcap = "0.9.10"
 

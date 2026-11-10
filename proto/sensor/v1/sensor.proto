@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package sensor.v1;
+
+// Shared messages for every image sensor service (screen_sensor, camera_sensor, ...).
+// No service here: each sensor service has its own RPCs and request/response messages.
+
+message ImageMetadata {
+  // Instance id from config, e.g. "screen-left" or "cam-1".
+  string sensor_id = 1;
+  // "screen" or "camera".
+  string kind = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  // "png" or "jpeg".
+  string format = 5;
+  // "image/png" or "image/jpeg".
+  string mime_type = 6;
+  // Device the frame came from, as the driver names it (e.g. "HDMI-0", "Integrated Camera").
+  string device_name = 7;
+  uint32 device_index = 8;
+  // Sub-driver that took the picture, e.g. "xcap", "linux-x11", "nokhwa-v4l".
+  string driver = 9;
+  int64 captured_at_unix_ms = 10;
+  uint32 capture_duration_ms = 11;
+  // Size of the encoded image (PNG/JPEG file).
+  uint64 file_size_bytes = 12;
+  // Size of the image once base64-encoded, as in Connect JSON and NATS JSON replies.
+  uint64 base64_size_bytes = 13;
+  // Kind-specific details. Screen: scale_factor. Camera: native_format, fps.
+  map<string, string> attributes = 14;
+}
+
+// One device a sensor driver can capture from.
+message DeviceInfo {
+  uint32 index = 1;
+  string name = 2;
+  // True for the device used when the config says "default".
+  bool is_default = 3;
+}

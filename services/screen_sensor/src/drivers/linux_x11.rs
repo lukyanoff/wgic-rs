@@ -8,17 +8,18 @@
 // Usings
 // ---------------------------------------------------------------------------------------------
 
+use std::collections::BTreeMap;
 use std::fmt::Display;
 
 // `use Trait as _` brings extension methods into scope without naming the trait
 // (≈ C# `using` a namespace for its extension methods).
+use sensor_base::{CaptureError, DeviceInfo, DeviceSelector, FrameSource, RawFrame, pick_device};
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, ImageOrder, Screen};
 use x11rb::rust_connection::RustConnection;
 
-use crate::config::ScreenSelector;
-use crate::domain::{CaptureDriver, CaptureError, RawFrame, ScreenInfo, pick_screen};
+use super::KIND;
 
 // ---------------------------------------------------------------------------------------------
 // Data
@@ -26,9 +27,9 @@ use crate::domain::{CaptureDriver, CaptureError, RawFrame, ScreenInfo, pick_scre
 
 pub struct LinuxX11Driver;
 
-/// One monitor: its name/primary flag plus where it sits on the big X11 root window.
+/// One monitor: its name/default flag plus where it sits on the big X11 root window.
 struct X11Monitor {
-    info: ScreenInfo,
+    info: DeviceInfo,
     x: i16,
     y: i16,
     width: u16,
@@ -42,25 +43,32 @@ const ALL_PLANES: u32 = !0;
 // Driver
 // ---------------------------------------------------------------------------------------------
 
-impl CaptureDriver for LinuxX11Driver {
+impl FrameSource for LinuxX11Driver {
     fn name(&self) -> &'static str {
         "linux-x11"
     }
 
-    fn capture(&self, screen: &ScreenSelector) -> Result<RawFrame, CaptureError> {
-        // Connection closes when `conn` goes out of scope (≈ C# `using var conn = ...`).
-        let (conn, screen_num) = match x11rb::connect(None) {
-            Ok(connected) => connected,
-            Err(error) => return Err(CaptureError::DriverUnavailable(format!("cannot connect to X server: {error}"))),
-        };
+    fn kind(&self) -> &'static str {
+        KIND
+    }
+
+    fn list_devices(&self) -> Result<Vec<DeviceInfo>, CaptureError> {
+        let (conn, screen_num) = connect()?;
+        let monitors = list_monitors(&conn, &conn.setup().roots[screen_num]);
+        Ok(monitors.into_iter().map(|m| m.info).collect())
+    }
+
+    fn grab(&self, device: &DeviceSelector) -> Result<RawFrame, CaptureError> {
+        // The connection closes when `conn` goes out of scope (≈ C# `using var conn = ...`).
+        let (conn, screen_num) = connect()?;
         let root_screen = &conn.setup().roots[screen_num];
         let monitors = list_monitors(&conn, root_screen);
 
-        let mut infos = Vec::new();
+        let mut devices = Vec::new();
         for monitor in &monitors {
-            infos.push(monitor.info.clone());
+            devices.push(monitor.info.clone());
         }
-        let index = pick_screen(&infos, screen)?;
+        let index = pick_device(&devices, device)?;
         let monitor = &monitors[index];
 
         let rgba = grab_rgba(&conn, root_screen, monitor)?;
@@ -68,9 +76,10 @@ impl CaptureDriver for LinuxX11Driver {
             rgba,
             width: monitor.width.into(),
             height: monitor.height.into(),
-            screen_name: monitor.info.name.clone(),
-            screen_index: u32::try_from(index).unwrap_or(u32::MAX),
-            scale_factor: 1.0, // X11 has no per-monitor scale
+            device_name: monitor.info.name.clone(),
+            device_index: monitor.info.index,
+            // X11 has no per-monitor scale.
+            attributes: BTreeMap::from([("scale_factor".to_string(), "1".to_string())]),
         })
     }
 }
@@ -79,11 +88,18 @@ impl CaptureDriver for LinuxX11Driver {
 // X11 calls
 // ---------------------------------------------------------------------------------------------
 
+fn connect() -> Result<(RustConnection, usize), CaptureError> {
+    match x11rb::connect(None) {
+        Ok(connected) => Ok(connected),
+        Err(error) => Err(CaptureError::DriverUnavailable(format!("cannot connect to X server: {error}"))),
+    }
+}
+
 /// Monitors from RandR 1.5. If RandR is missing (old/minimal X servers), the whole root window
-/// is reported as one primary monitor.
+/// is reported as one default monitor.
 fn list_monitors(conn: &RustConnection, root_screen: &Screen) -> Vec<X11Monitor> {
     let whole_screen = X11Monitor {
-        info: ScreenInfo { name: "screen-0".into(), is_primary: true },
+        info: DeviceInfo { index: 0, name: "screen-0".into(), is_default: true },
         x: 0,
         y: 0,
         width: root_screen.width_in_pixels,
@@ -94,8 +110,9 @@ fn list_monitors(conn: &RustConnection, root_screen: &Screen) -> Vec<X11Monitor>
         return vec![whole_screen];
     };
     let mut monitors = Vec::new();
-    for m in reply.monitors {
-        let info = ScreenInfo { name: atom_name(conn, m.name), is_primary: m.primary };
+    for (index, m) in reply.monitors.into_iter().enumerate() {
+        let index = u32::try_from(index).unwrap_or(u32::MAX);
+        let info = DeviceInfo { index, name: atom_name(conn, m.name), is_default: m.primary };
         monitors.push(X11Monitor { info, x: m.x, y: m.y, width: m.width, height: m.height });
     }
     if monitors.is_empty() {

@@ -10,7 +10,8 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 | 0 contracts | `proto/`, `crates/contracts` | `.proto` + generated code | — |
 | 1 kernel | `crates/kernel` | `Module`, `Deps`, `Channel`, `Logger`, `Metrics`, `Transport` | — |
 | 2 platform | `crates/platform` | HTTP + NATS adapters, telemetry, host runner | kernel |
-| 3 services | `services/<name>` | one service: domain rules + handler | contracts, kernel |
+| 3a libs | `libs/<name>` | shared building blocks for services (no RPC of their own), e.g. `libs/sensor_base` | contracts, kernel |
+| 3 services | `services/<name>` | one service: domain rules + handler | contracts, kernel, libs |
 | 4 apps | `apps/host` | wiring (composition root) | anything |
 | 5 e2e | `tests/e2e` | black-box tests against the real `host` binary | contracts, kernel, platform |
 
@@ -18,8 +19,9 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 
 ## Rules
 
-1. **Stay in one box per change.** A service change touches `services/<name>/` (and its proto / e2e file). An infrastructure change touches `crates/platform/` only. `apps/host` changes only to add a service line.
+1. **Stay in one box per change.** A service change touches `services/<name>/` (and its proto / e2e file). A lib change touches `libs/<name>/` and the services built on it. An infrastructure change touches `crates/platform/` only. `apps/host` changes only to add a service line.
 2. **Services never import `platform` or another service.** To call another service: its generated client + `Deps` (`XClient::new(deps.channel(), deps.client_config())`).
+   Code that several services share (a "base class") goes in a lib under `libs/`; libs never import a service.
 3. **Every service has 3 test layers**: unit (`src/domain_tests.rs`), integration (`services/<name>/tests/*.rs`, in-process via `Deps::in_process`), e2e (`tests/e2e/tests/<name>.rs`, HTTP **and** NATS).
 4. **Write simple code** — use the `simple-code` skill for every code change. Readers are C#/Python/TS developers.
 5. **Tests and code live in separate files.** `foo.rs` ends with
@@ -40,6 +42,8 @@ cargo test -p platform            # infrastructure only, no services compiled
 cargo test -p e2e --test greet    # one service end-to-end
 npm run gen                       # after any .proto change
 SERVICES=greet cargo run -p host  # run one service (default: all)
+scripts/run-sensors.sh            # 4 sensor instances (2 screens :8081-8082, 2 cameras :8083-8084), one process each
+scripts/run-llm-callers.sh        # 4 llm_caller instances (claude, agy, openai, openrouter :8091-8094), one process each
 curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' localhost:8080/greet.v1.GreetService/Greet
 ```
 

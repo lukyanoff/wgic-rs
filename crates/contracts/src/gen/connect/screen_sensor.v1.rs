@@ -8,6 +8,14 @@ pub type OwnedCaptureRequestView = ::buffa::view::OwnedView<
 pub type OwnedCaptureResponseView = ::buffa::view::OwnedView<
     crate::proto::screen_sensor::v1::__buffa::view::CaptureResponseView<'static>,
 >;
+///Shorthand for `OwnedView<ListDevicesRequestView<'static>>`.
+pub type OwnedListDevicesRequestView = ::buffa::view::OwnedView<
+    crate::proto::screen_sensor::v1::__buffa::view::ListDevicesRequestView<'static>,
+>;
+///Shorthand for `OwnedView<ListDevicesResponseView<'static>>`.
+pub type OwnedListDevicesResponseView = ::buffa::view::OwnedView<
+    crate::proto::screen_sensor::v1::__buffa::view::ListDevicesResponseView<'static>,
+>;
 impl ::connectrpc::Encodable<crate::proto::screen_sensor::v1::CaptureResponse>
 for crate::proto::screen_sensor::v1::__buffa::view::CaptureResponseView<'_> {
     fn encode(
@@ -42,11 +50,51 @@ for ::buffa::view::OwnedView<
         )
     }
 }
+impl ::connectrpc::Encodable<crate::proto::screen_sensor::v1::ListDevicesResponse>
+for crate::proto::screen_sensor::v1::__buffa::view::ListDevicesResponseView<'_> {
+    fn encode(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::buffa::bytes::Bytes, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body(self, codec)
+    }
+}
+impl ::connectrpc::Encodable<crate::proto::screen_sensor::v1::ListDevicesResponse>
+for ::buffa::view::OwnedView<
+    crate::proto::screen_sensor::v1::__buffa::view::ListDevicesResponseView<'static>,
+> {
+    fn encode(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::buffa::bytes::Bytes, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body(self.reborrow(), codec)
+    }
+    /// An `OwnedView` still holds the buffer it was decoded from, so
+    /// its large fields can be handed to the response body by
+    /// reference count instead of copied. The bare view impl above
+    /// cannot do this: it has borrows but no buffer to name.
+    fn encode_segments(
+        &self,
+        codec: ::connectrpc::CodecFormat,
+    ) -> ::std::result::Result<::connectrpc::EncodedBody, ::connectrpc::ConnectError> {
+        ::connectrpc::__codegen::encode_view_body_segments(
+            self.reborrow(),
+            self.bytes(),
+            codec,
+        )
+    }
+}
 /// Full service name for this service.
 pub const SCREEN_SENSOR_SERVICE_SERVICE_NAME: &str = "screen_sensor.v1.ScreenSensorService";
 /// Static [`Spec`](::connectrpc::Spec) for the `Capture` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
 pub const SCREEN_SENSOR_SERVICE_CAPTURE_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
         "/screen_sensor.v1.ScreenSensorService/Capture",
+        ::connectrpc::StreamType::Unary,
+    )
+    .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
+/// Static [`Spec`](::connectrpc::Spec) for the `ListDevices` RPC, as seen by the server; the generated client passes it with [`origin`](::connectrpc::Spec::origin) `Client` (compare across sides with [`Spec::same_method`](::connectrpc::Spec::same_method)).
+pub const SCREEN_SENSOR_SERVICE_LIST_DEVICES_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::server(
+        "/screen_sensor.v1.ScreenSensorService/ListDevices",
         ::connectrpc::StreamType::Unary,
     )
     .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
@@ -124,6 +172,29 @@ pub trait ScreenSensorService: Send + Sync + 'static {
             > + Send + use<'a, Self>,
         >,
     > + Send;
+    /// Handle the ListDevices RPC.
+    ///
+    /// `'a` lets the response body borrow from `&self` (e.g. server-resident state).
+    ///
+    /// `request` is borrowed from the request body and is valid for the
+    /// duration of the call; message fields are read directly on it
+    /// (zero-copy). The response cannot borrow from `request` — use
+    /// `.to_owned_message()` (or copy the specific fields) for anything
+    /// returned, stored, or moved into `tokio::spawn`.
+    fn list_devices<'a>(
+        &'a self,
+        ctx: ::connectrpc::RequestContext,
+        request: ::connectrpc::ServiceRequest<
+            '_,
+            crate::proto::screen_sensor::v1::ListDevicesRequest,
+        >,
+    ) -> impl ::std::future::Future<
+        Output = ::connectrpc::ServiceResult<
+            impl ::connectrpc::Encodable<
+                crate::proto::screen_sensor::v1::ListDevicesResponse,
+            > + Send + use<'a, Self>,
+        >,
+    > + Send;
 }
 /// Extension trait for registering a service implementation with a Router.
 ///
@@ -185,6 +256,35 @@ impl<S: ScreenSensorService> ScreenSensorServiceExt for S {
                 },
             )
             .with_spec(SCREEN_SENSOR_SERVICE_CAPTURE_SPEC)
+            .route_view(
+                SCREEN_SENSOR_SERVICE_SERVICE_NAME,
+                "ListDevices",
+                {
+                    let svc = ::std::sync::Arc::clone(&self);
+                    ::connectrpc::view_handler_fn(move |
+                        ctx,
+                        req: ::buffa::view::OwnedView<
+                            crate::proto::screen_sensor::v1::__buffa::view::ListDevicesRequestView<
+                                'static,
+                            >,
+                        >,
+                        format|
+                    {
+                        let svc = ::std::sync::Arc::clone(&svc);
+                        async move {
+                            let sreq = ::connectrpc::ServiceRequest::<
+                                crate::proto::screen_sensor::v1::ListDevicesRequest,
+                            >::from_parts(req.reborrow(), req.bytes());
+                            svc.list_devices(ctx, sreq)
+                                .await?
+                                .encode::<
+                                    crate::proto::screen_sensor::v1::ListDevicesResponse,
+                                >(format)
+                        }
+                    })
+                },
+            )
+            .with_spec(SCREEN_SENSOR_SERVICE_LIST_DEVICES_SPEC)
     }
 }
 /// Type-inference marker used by [`Router::add_service`](::connectrpc::Router::add_service).
@@ -247,6 +347,12 @@ impl<T: ScreenSensorService> ::connectrpc::Dispatcher for ScreenSensorServiceSer
                         .with_spec(SCREEN_SENSOR_SERVICE_CAPTURE_SPEC),
                 )
             }
+            "ListDevices" => {
+                Some(
+                    ::connectrpc::dispatcher::codegen::MethodDescriptor::unary(false)
+                        .with_spec(SCREEN_SENSOR_SERVICE_LIST_DEVICES_SPEC),
+                )
+            }
             _ => None,
         }
     }
@@ -282,6 +388,28 @@ impl<T: ScreenSensorService> ::connectrpc::Dispatcher for ScreenSensorServiceSer
                         .await?
                         .encode::<
                             crate::proto::screen_sensor::v1::CaptureResponse,
+                        >(format)
+                })
+            }
+            "ListDevices" => {
+                let svc = ::std::sync::Arc::clone(&self.inner);
+                Box::pin(async move {
+                    let body = ::connectrpc::dispatcher::codegen::request_proto_bytes::<
+                        crate::proto::screen_sensor::v1::ListDevicesRequest,
+                    >(request.encoded()?, format)?;
+                    let req: crate::proto::screen_sensor::v1::__buffa::view::ListDevicesRequestView<
+                        '_,
+                    > = ::connectrpc::dispatcher::codegen::decode_borrowed_request_view(
+                        &body,
+                        ctx.decode_options(),
+                    )?;
+                    let req = ::connectrpc::ServiceRequest::<
+                        crate::proto::screen_sensor::v1::ListDevicesRequest,
+                    >::from_parts(&req, &body);
+                    svc.list_devices(ctx, req)
+                        .await?
+                        .encode::<
+                            crate::proto::screen_sensor::v1::ListDevicesResponse,
                         >(format)
                 })
             }
@@ -452,6 +580,51 @@ where
                 &self.transport,
                 &self.config,
                 SCREEN_SENSOR_SERVICE_CAPTURE_SPEC
+                    .with_origin(::connectrpc::SpecOrigin::Client),
+                request,
+                options,
+            )
+            .await
+    }
+    /// Call the ListDevices RPC. Sends a request to /screen_sensor.v1.ScreenSensorService/ListDevices.
+    pub async fn list_devices(
+        &self,
+        request: crate::proto::screen_sensor::v1::ListDevicesRequest,
+    ) -> Result<
+        ::connectrpc::client::UnaryResponse<
+            ::buffa::view::OwnedView<
+                crate::proto::screen_sensor::v1::__buffa::view::ListDevicesResponseView<
+                    'static,
+                >,
+            >,
+        >,
+        ::connectrpc::ConnectError,
+    > {
+        self.list_devices_with_options(
+                request,
+                ::connectrpc::client::CallOptions::default(),
+            )
+            .await
+    }
+    /// Call the ListDevices RPC with explicit per-call options. Options override [`ClientConfig`](::connectrpc::client::ClientConfig) defaults.
+    pub async fn list_devices_with_options(
+        &self,
+        request: crate::proto::screen_sensor::v1::ListDevicesRequest,
+        options: ::connectrpc::client::CallOptions,
+    ) -> Result<
+        ::connectrpc::client::UnaryResponse<
+            ::buffa::view::OwnedView<
+                crate::proto::screen_sensor::v1::__buffa::view::ListDevicesResponseView<
+                    'static,
+                >,
+            >,
+        >,
+        ::connectrpc::ConnectError,
+    > {
+        ::connectrpc::client::call_unary(
+                &self.transport,
+                &self.config,
+                SCREEN_SENSOR_SERVICE_LIST_DEVICES_SPEC
                     .with_origin(::connectrpc::SpecOrigin::Client),
                 request,
                 options,

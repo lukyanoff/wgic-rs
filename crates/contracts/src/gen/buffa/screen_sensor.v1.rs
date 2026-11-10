@@ -123,7 +123,10 @@ pub struct CaptureResponse {
         rename = "metadata",
         skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
     )]
-    pub metadata: ::buffa::MessageField<ImageMetadata, ::buffa::Inline<ImageMetadata>>,
+    pub metadata: ::buffa::MessageField<
+        super::super::sensor::v1::ImageMetadata,
+        ::buffa::Inline<super::super::sensor::v1::ImageMetadata>,
+    >,
     #[serde(skip)]
     #[doc(hidden)]
     pub __buffa_unknown_fields: ::buffa::UnknownFields,
@@ -271,147 +274,31 @@ pub const __CAPTURE_RESPONSE_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::
 #[derive(Clone, PartialEq, Default)]
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[serde(default)]
-pub struct ImageMetadata {
-    /// Field 1: `width`
-    #[serde(
-        rename = "width",
-        with = "::buffa::json_helpers::uint32",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u32"
-    )]
-    pub width: u32,
-    /// Field 2: `height`
-    #[serde(
-        rename = "height",
-        with = "::buffa::json_helpers::uint32",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u32"
-    )]
-    pub height: u32,
-    /// "png" or "jpeg".
-    ///
-    /// Field 3: `format`
-    #[serde(
-        rename = "format",
-        with = "::buffa::json_helpers::proto_string",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
-    )]
-    pub format: ::buffa::alloc::string::String,
-    /// "image/png" or "image/jpeg".
-    ///
-    /// Field 4: `mime_type`
-    #[serde(
-        rename = "mimeType",
-        alias = "mime_type",
-        with = "::buffa::json_helpers::proto_string",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
-    )]
-    pub mime_type: ::buffa::alloc::string::String,
-    /// Field 5: `screen_name`
-    #[serde(
-        rename = "screenName",
-        alias = "screen_name",
-        with = "::buffa::json_helpers::proto_string",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
-    )]
-    pub screen_name: ::buffa::alloc::string::String,
-    /// Field 6: `screen_index`
-    #[serde(
-        rename = "screenIndex",
-        alias = "screen_index",
-        with = "::buffa::json_helpers::uint32",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u32"
-    )]
-    pub screen_index: u32,
-    /// Field 7: `scale_factor`
-    #[serde(
-        rename = "scaleFactor",
-        alias = "scale_factor",
-        with = "::buffa::json_helpers::float",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_f32"
-    )]
-    pub scale_factor: f32,
-    /// Sub-driver that took the picture, e.g. "xcap" or "linux-x11".
-    ///
-    /// Field 8: `driver`
-    #[serde(
-        rename = "driver",
-        with = "::buffa::json_helpers::proto_string",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
-    )]
-    pub driver: ::buffa::alloc::string::String,
-    /// Field 9: `captured_at_unix_ms`
-    #[serde(
-        rename = "capturedAtUnixMs",
-        alias = "captured_at_unix_ms",
-        with = "::buffa::json_helpers::int64",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_i64"
-    )]
-    pub captured_at_unix_ms: i64,
-    /// Field 10: `capture_duration_ms`
-    #[serde(
-        rename = "captureDurationMs",
-        alias = "capture_duration_ms",
-        with = "::buffa::json_helpers::uint32",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u32"
-    )]
-    pub capture_duration_ms: u32,
-    /// Size of `image` in bytes (the encoded PNG/JPEG file).
-    ///
-    /// Field 11: `file_size_bytes`
-    #[serde(
-        rename = "fileSizeBytes",
-        alias = "file_size_bytes",
-        with = "::buffa::json_helpers::uint64",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u64"
-    )]
-    pub file_size_bytes: u64,
-    /// Size of `image` once base64-encoded, as it travels in Connect JSON and NATS JSON
-    /// replies (4 * ceil(file_size_bytes / 3)). Compare with the NATS max_payload.
-    ///
-    /// Field 12: `base64_size_bytes`
-    #[serde(
-        rename = "base64SizeBytes",
-        alias = "base64_size_bytes",
-        with = "::buffa::json_helpers::uint64",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u64"
-    )]
-    pub base64_size_bytes: u64,
+pub struct ListDevicesRequest {
     #[serde(skip)]
     #[doc(hidden)]
     pub __buffa_unknown_fields: ::buffa::UnknownFields,
 }
-impl ::core::fmt::Debug for ImageMetadata {
+impl ::core::fmt::Debug for ListDevicesRequest {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("ImageMetadata")
-            .field("width", &self.width)
-            .field("height", &self.height)
-            .field("format", &self.format)
-            .field("mime_type", &self.mime_type)
-            .field("screen_name", &self.screen_name)
-            .field("screen_index", &self.screen_index)
-            .field("scale_factor", &self.scale_factor)
-            .field("driver", &self.driver)
-            .field("captured_at_unix_ms", &self.captured_at_unix_ms)
-            .field("capture_duration_ms", &self.capture_duration_ms)
-            .field("file_size_bytes", &self.file_size_bytes)
-            .field("base64_size_bytes", &self.base64_size_bytes)
-            .finish()
+        f.debug_struct("ListDevicesRequest").finish()
     }
 }
-impl ImageMetadata {
+impl ListDevicesRequest {
     /// Protobuf type URL for this message, for use with `Any::pack` and
     /// `Any::unpack_if`.
     ///
     /// Format: `type.googleapis.com/<fully.qualified.TypeName>`
-    pub const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ImageMetadata";
+    pub const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ListDevicesRequest";
 }
-::buffa::impl_default_instance!(ImageMetadata);
-impl ::buffa::MessageName for ImageMetadata {
+::buffa::impl_default_instance!(ListDevicesRequest);
+impl ::buffa::MessageName for ListDevicesRequest {
     const PACKAGE: &'static str = "screen_sensor.v1";
-    const NAME: &'static str = "ImageMetadata";
-    const FULL_NAME: &'static str = "screen_sensor.v1.ImageMetadata";
-    const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ImageMetadata";
+    const NAME: &'static str = "ListDevicesRequest";
+    const FULL_NAME: &'static str = "screen_sensor.v1.ListDevicesRequest";
+    const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ListDevicesRequest";
 }
-impl ::buffa::Message for ImageMetadata {
+impl ::buffa::Message for ListDevicesRequest {
     /// Returns the total encoded size in bytes.
     ///
     /// Accumulates in `u64` (which cannot overflow for in-memory
@@ -424,51 +311,6 @@ impl ::buffa::Message for ImageMetadata {
         #[allow(unused_imports)]
         use ::buffa::Enumeration as _;
         let mut size = 0u64;
-        if self.width != 0u32 {
-            size += 1u64 + ::buffa::types::uint32_encoded_len(self.width) as u64;
-        }
-        if self.height != 0u32 {
-            size += 1u64 + ::buffa::types::uint32_encoded_len(self.height) as u64;
-        }
-        if !self.format.is_empty() {
-            size += 1u64 + ::buffa::types::string_encoded_len(&self.format) as u64;
-        }
-        if !self.mime_type.is_empty() {
-            size += 1u64 + ::buffa::types::string_encoded_len(&self.mime_type) as u64;
-        }
-        if !self.screen_name.is_empty() {
-            size += 1u64 + ::buffa::types::string_encoded_len(&self.screen_name) as u64;
-        }
-        if self.screen_index != 0u32 {
-            size += 1u64 + ::buffa::types::uint32_encoded_len(self.screen_index) as u64;
-        }
-        if self.scale_factor.to_bits() != 0u32 {
-            size += 1u64 + ::buffa::types::FIXED32_ENCODED_LEN as u64;
-        }
-        if !self.driver.is_empty() {
-            size += 1u64 + ::buffa::types::string_encoded_len(&self.driver) as u64;
-        }
-        if self.captured_at_unix_ms != 0i64 {
-            size
-                += 1u64
-                    + ::buffa::types::int64_encoded_len(self.captured_at_unix_ms) as u64;
-        }
-        if self.capture_duration_ms != 0u32 {
-            size
-                += 1u64
-                    + ::buffa::types::uint32_encoded_len(self.capture_duration_ms)
-                        as u64;
-        }
-        if self.file_size_bytes != 0u64 {
-            size
-                += 1u64
-                    + ::buffa::types::uint64_encoded_len(self.file_size_bytes) as u64;
-        }
-        if self.base64_size_bytes != 0u64 {
-            size
-                += 1u64
-                    + ::buffa::types::uint64_encoded_len(self.base64_size_bytes) as u64;
-        }
         size += self.__buffa_unknown_fields.encoded_len() as u64;
         ::buffa::saturate_size(size)
     }
@@ -479,41 +321,133 @@ impl ::buffa::Message for ImageMetadata {
     ) {
         #[allow(unused_imports)]
         use ::buffa::Enumeration as _;
-        if self.width != 0u32 {
-            ::buffa::types::put_uint32_field(1u32, self.width, buf);
+        self.__buffa_unknown_fields.write_to(buf);
+    }
+    fn merge_field(
+        &mut self,
+        tag: ::buffa::encoding::Tag,
+        buf: &mut impl ::buffa::bytes::Buf,
+        ctx: ::buffa::DecodeContext<'_>,
+    ) -> ::core::result::Result<(), ::buffa::DecodeError> {
+        #[allow(unused_imports)]
+        use ::buffa::bytes::Buf as _;
+        #[allow(unused_imports)]
+        use ::buffa::Enumeration as _;
+        match tag.field_number() {
+            _ => {
+                self.__buffa_unknown_fields
+                    .push(::buffa::encoding::decode_unknown_field(tag, buf, ctx)?);
+            }
         }
-        if self.height != 0u32 {
-            ::buffa::types::put_uint32_field(2u32, self.height, buf);
+        ::core::result::Result::Ok(())
+    }
+    fn clear(&mut self) {
+        self.__buffa_unknown_fields.clear();
+    }
+}
+impl ::buffa::ExtensionSet for ListDevicesRequest {
+    const PROTO_FQN: &'static str = "screen_sensor.v1.ListDevicesRequest";
+    fn unknown_fields(&self) -> &::buffa::UnknownFields {
+        &self.__buffa_unknown_fields
+    }
+    fn unknown_fields_mut(&mut self) -> &mut ::buffa::UnknownFields {
+        &mut self.__buffa_unknown_fields
+    }
+}
+impl ::buffa::json_helpers::ProtoElemJson for ListDevicesRequest {
+    fn serialize_proto_json<S: ::serde::Serializer>(
+        v: &Self,
+        s: S,
+    ) -> ::core::result::Result<S::Ok, S::Error> {
+        ::serde::Serialize::serialize(v, s)
+    }
+    fn deserialize_proto_json<'de, D: ::serde::Deserializer<'de>>(
+        d: D,
+    ) -> ::core::result::Result<Self, D::Error> {
+        <Self as ::serde::Deserialize>::deserialize(d)
+    }
+}
+#[doc(hidden)]
+pub const __LIST_DEVICES_REQUEST_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buffa::type_registry::JsonAnyEntry {
+    type_url: "type.googleapis.com/screen_sensor.v1.ListDevicesRequest",
+    to_json: ::buffa::type_registry::any_to_json::<ListDevicesRequest>,
+    from_json: ::buffa::type_registry::any_from_json::<ListDevicesRequest>,
+    is_wkt: false,
+};
+#[derive(Clone, PartialEq, Default)]
+#[derive(::serde::Serialize, ::serde::Deserialize)]
+#[serde(default)]
+pub struct ListDevicesResponse {
+    /// Screens (monitors) the configured driver can see.
+    ///
+    /// Field 1: `devices`
+    #[serde(
+        rename = "devices",
+        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
+        deserialize_with = "::buffa::json_helpers::null_as_default"
+    )]
+    pub devices: ::buffa::alloc::vec::Vec<super::super::sensor::v1::DeviceInfo>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub __buffa_unknown_fields: ::buffa::UnknownFields,
+}
+impl ::core::fmt::Debug for ListDevicesResponse {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("ListDevicesResponse").field("devices", &self.devices).finish()
+    }
+}
+impl ListDevicesResponse {
+    /// Protobuf type URL for this message, for use with `Any::pack` and
+    /// `Any::unpack_if`.
+    ///
+    /// Format: `type.googleapis.com/<fully.qualified.TypeName>`
+    pub const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ListDevicesResponse";
+}
+::buffa::impl_default_instance!(ListDevicesResponse);
+impl ::buffa::MessageName for ListDevicesResponse {
+    const PACKAGE: &'static str = "screen_sensor.v1";
+    const NAME: &'static str = "ListDevicesResponse";
+    const FULL_NAME: &'static str = "screen_sensor.v1.ListDevicesResponse";
+    const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ListDevicesResponse";
+}
+impl ::buffa::Message for ListDevicesResponse {
+    /// Returns the total encoded size in bytes.
+    ///
+    /// Accumulates in `u64` (which cannot overflow for in-memory
+    /// data) and saturates to `u32` at return, so a message whose
+    /// encoded size exceeds the 2 GiB protobuf limit yields a value
+    /// above [`::buffa::MAX_MESSAGE_BYTES`] that the encode entry
+    /// points reject, never a silently wrapped size.
+    #[allow(clippy::let_and_return)]
+    fn compute_size(&self, __cache: &mut ::buffa::SizeCache) -> u32 {
+        #[allow(unused_imports)]
+        use ::buffa::Enumeration as _;
+        let mut size = 0u64;
+        for v in &self.devices {
+            let __slot = __cache.reserve();
+            let inner_size = v.compute_size(__cache);
+            __cache.set(__slot, inner_size);
+            size
+                += 1u64 + ::buffa::encoding::varint_len(inner_size as u64) as u64
+                    + inner_size as u64;
         }
-        if !self.format.is_empty() {
-            ::buffa::types::put_string_field(3u32, &self.format, buf);
-        }
-        if !self.mime_type.is_empty() {
-            ::buffa::types::put_string_field(4u32, &self.mime_type, buf);
-        }
-        if !self.screen_name.is_empty() {
-            ::buffa::types::put_string_field(5u32, &self.screen_name, buf);
-        }
-        if self.screen_index != 0u32 {
-            ::buffa::types::put_uint32_field(6u32, self.screen_index, buf);
-        }
-        if self.scale_factor.to_bits() != 0u32 {
-            ::buffa::types::put_float_field(7u32, self.scale_factor, buf);
-        }
-        if !self.driver.is_empty() {
-            ::buffa::types::put_string_field(8u32, &self.driver, buf);
-        }
-        if self.captured_at_unix_ms != 0i64 {
-            ::buffa::types::put_int64_field(9u32, self.captured_at_unix_ms, buf);
-        }
-        if self.capture_duration_ms != 0u32 {
-            ::buffa::types::put_uint32_field(10u32, self.capture_duration_ms, buf);
-        }
-        if self.file_size_bytes != 0u64 {
-            ::buffa::types::put_uint64_field(11u32, self.file_size_bytes, buf);
-        }
-        if self.base64_size_bytes != 0u64 {
-            ::buffa::types::put_uint64_field(12u32, self.base64_size_bytes, buf);
+        size += self.__buffa_unknown_fields.encoded_len() as u64;
+        ::buffa::saturate_size(size)
+    }
+    fn write_to(
+        &self,
+        __cache: &mut ::buffa::SizeCache,
+        buf: &mut impl ::buffa::EncodeSink,
+    ) {
+        #[allow(unused_imports)]
+        use ::buffa::Enumeration as _;
+        for v in &self.devices {
+            ::buffa::types::put_len_delimited_header(
+                1u32,
+                u64::from(__cache.consume_next()),
+                buf,
+            );
+            v.write_to(__cache, buf);
         }
         self.__buffa_unknown_fields.write_to(buf);
     }
@@ -531,86 +465,14 @@ impl ::buffa::Message for ImageMetadata {
             1u32 => {
                 ::buffa::encoding::check_wire_type(
                     tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.width = ::buffa::types::decode_uint32(buf)?;
-            }
-            2u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.height = ::buffa::types::decode_uint32(buf)?;
-            }
-            3u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
                     ::buffa::encoding::WireType::LengthDelimited,
                 )?;
-                ::buffa::types::merge_string(&mut self.format, buf)?;
-            }
-            4u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::LengthDelimited,
+                let mut elem = ::core::default::Default::default();
+                ctx.register_element_memory(
+                    ::buffa::__private::element_footprint(&elem),
                 )?;
-                ::buffa::types::merge_string(&mut self.mime_type, buf)?;
-            }
-            5u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::LengthDelimited,
-                )?;
-                ::buffa::types::merge_string(&mut self.screen_name, buf)?;
-            }
-            6u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.screen_index = ::buffa::types::decode_uint32(buf)?;
-            }
-            7u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Fixed32,
-                )?;
-                self.scale_factor = ::buffa::types::decode_float(buf)?;
-            }
-            8u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::LengthDelimited,
-                )?;
-                ::buffa::types::merge_string(&mut self.driver, buf)?;
-            }
-            9u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.captured_at_unix_ms = ::buffa::types::decode_int64(buf)?;
-            }
-            10u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.capture_duration_ms = ::buffa::types::decode_uint32(buf)?;
-            }
-            11u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.file_size_bytes = ::buffa::types::decode_uint64(buf)?;
-            }
-            12u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Varint,
-                )?;
-                self.base64_size_bytes = ::buffa::types::decode_uint64(buf)?;
+                ::buffa::Message::merge_length_delimited(&mut elem, buf, ctx)?;
+                self.devices.push(elem);
             }
             _ => {
                 self.__buffa_unknown_fields
@@ -620,23 +482,12 @@ impl ::buffa::Message for ImageMetadata {
         ::core::result::Result::Ok(())
     }
     fn clear(&mut self) {
-        self.width = 0u32;
-        self.height = 0u32;
-        self.format.clear();
-        self.mime_type.clear();
-        self.screen_name.clear();
-        self.screen_index = 0u32;
-        self.scale_factor = 0f32;
-        self.driver.clear();
-        self.captured_at_unix_ms = 0i64;
-        self.capture_duration_ms = 0u32;
-        self.file_size_bytes = 0u64;
-        self.base64_size_bytes = 0u64;
+        self.devices.clear();
         self.__buffa_unknown_fields.clear();
     }
 }
-impl ::buffa::ExtensionSet for ImageMetadata {
-    const PROTO_FQN: &'static str = "screen_sensor.v1.ImageMetadata";
+impl ::buffa::ExtensionSet for ListDevicesResponse {
+    const PROTO_FQN: &'static str = "screen_sensor.v1.ListDevicesResponse";
     fn unknown_fields(&self) -> &::buffa::UnknownFields {
         &self.__buffa_unknown_fields
     }
@@ -644,7 +495,7 @@ impl ::buffa::ExtensionSet for ImageMetadata {
         &mut self.__buffa_unknown_fields
     }
 }
-impl ::buffa::json_helpers::ProtoElemJson for ImageMetadata {
+impl ::buffa::json_helpers::ProtoElemJson for ListDevicesResponse {
     fn serialize_proto_json<S: ::serde::Serializer>(
         v: &Self,
         s: S,
@@ -658,10 +509,10 @@ impl ::buffa::json_helpers::ProtoElemJson for ImageMetadata {
     }
 }
 #[doc(hidden)]
-pub const __IMAGE_METADATA_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buffa::type_registry::JsonAnyEntry {
-    type_url: "type.googleapis.com/screen_sensor.v1.ImageMetadata",
-    to_json: ::buffa::type_registry::any_to_json::<ImageMetadata>,
-    from_json: ::buffa::type_registry::any_from_json::<ImageMetadata>,
+pub const __LIST_DEVICES_RESPONSE_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buffa::type_registry::JsonAnyEntry {
+    type_url: "type.googleapis.com/screen_sensor.v1.ListDevicesResponse",
+    to_json: ::buffa::type_registry::any_to_json::<ListDevicesResponse>,
+    from_json: ::buffa::type_registry::any_from_json::<ListDevicesResponse>,
     is_wkt: false,
 };
 #[allow(
@@ -932,7 +783,9 @@ pub mod __buffa {
             pub image: &'a [u8],
             /// Field 2: `metadata`
             pub metadata: ::buffa::MessageFieldView<
-                super::super::__buffa::view::ImageMetadataView<'a>,
+                super::super::super::super::sensor::v1::__buffa::view::ImageMetadataView<
+                    'a,
+                >,
             >,
             pub __buffa_unknown_fields: ::buffa::UnknownFieldsView<'a>,
         }
@@ -996,7 +849,7 @@ pub mod __buffa {
                             }
                             None => {
                                 view.metadata = ::buffa::MessageFieldView::set(
-                                    <super::super::__buffa::view::ImageMetadataView as ::buffa::MessageView>::decode_view_ctx(
+                                    <super::super::super::super::sensor::v1::__buffa::view::ImageMetadataView as ::buffa::MessageView>::decode_view_ctx(
                                         sub,
                                         __sub_ctx,
                                     )?,
@@ -1037,8 +890,10 @@ pub mod __buffa {
                     metadata: match self.metadata.as_option() {
                         Some(v) => {
                             ::buffa::MessageField::<
-                                super::super::ImageMetadata,
-                                ::buffa::Inline<super::super::ImageMetadata>,
+                                super::super::super::super::sensor::v1::ImageMetadata,
+                                ::buffa::Inline<
+                                    super::super::super::super::sensor::v1::ImageMetadata,
+                                >,
                             >::some(v.to_owned_from_source(__buffa_src)?)
                         }
                         None => ::buffa::MessageField::none(),
@@ -1231,7 +1086,9 @@ pub mod __buffa {
             pub fn metadata(
                 &self,
             ) -> &::buffa::MessageFieldView<
-                super::super::__buffa::view::ImageMetadataView<'_>,
+                super::super::super::super::sensor::v1::__buffa::view::ImageMetadataView<
+                    '_,
+                >,
             > {
                 &self.0.reborrow().metadata
             }
@@ -1267,46 +1124,259 @@ pub mod __buffa {
             }
         }
         #[derive(Clone, Debug, Default)]
-        pub struct ImageMetadataView<'a> {
-            /// Field 1: `width`
-            pub width: u32,
-            /// Field 2: `height`
-            pub height: u32,
-            /// "png" or "jpeg".
-            ///
-            /// Field 3: `format`
-            pub format: &'a str,
-            /// "image/png" or "image/jpeg".
-            ///
-            /// Field 4: `mime_type`
-            pub mime_type: &'a str,
-            /// Field 5: `screen_name`
-            pub screen_name: &'a str,
-            /// Field 6: `screen_index`
-            pub screen_index: u32,
-            /// Field 7: `scale_factor`
-            pub scale_factor: f32,
-            /// Sub-driver that took the picture, e.g. "xcap" or "linux-x11".
-            ///
-            /// Field 8: `driver`
-            pub driver: &'a str,
-            /// Field 9: `captured_at_unix_ms`
-            pub captured_at_unix_ms: i64,
-            /// Field 10: `capture_duration_ms`
-            pub capture_duration_ms: u32,
-            /// Size of `image` in bytes (the encoded PNG/JPEG file).
-            ///
-            /// Field 11: `file_size_bytes`
-            pub file_size_bytes: u64,
-            /// Size of `image` once base64-encoded, as it travels in Connect JSON and NATS JSON
-            /// replies (4 * ceil(file_size_bytes / 3)). Compare with the NATS max_payload.
-            ///
-            /// Field 12: `base64_size_bytes`
-            pub base64_size_bytes: u64,
+        pub struct ListDevicesRequestView<'a> {
             pub __buffa_unknown_fields: ::buffa::UnknownFieldsView<'a>,
         }
-        impl<'a> ::buffa::MessageView<'a> for ImageMetadataView<'a> {
-            type Owned = super::super::ImageMetadata;
+        impl<'a> ::buffa::MessageView<'a> for ListDevicesRequestView<'a> {
+            type Owned = super::super::ListDevicesRequest;
+            fn decode_view(
+                buf: &'a [u8],
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                let __limit = ::core::cell::Cell::new(
+                    ::buffa::DEFAULT_UNKNOWN_FIELD_LIMIT,
+                );
+                let __elem = ::core::cell::Cell::new(
+                    ::buffa::DEFAULT_ELEMENT_MEMORY_LIMIT,
+                );
+                <Self as ::buffa::MessageView>::decode_view_ctx(
+                    buf,
+                    ::buffa::DecodeContext::new(::buffa::RECURSION_LIMIT, &__limit)
+                        .with_element_memory(&__elem),
+                )
+            }
+            fn decode_view_with_ctx(
+                buf: &'a [u8],
+                ctx: ::buffa::DecodeContext<'_>,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                <Self as ::buffa::MessageView>::decode_view_ctx(buf, ctx)
+            }
+            #[inline]
+            fn merge_view_field(
+                &mut self,
+                tag: ::buffa::encoding::Tag,
+                cur: &'a [u8],
+                before_tag: &'a [u8],
+                ctx: ::buffa::DecodeContext<'_>,
+            ) -> ::core::result::Result<&'a [u8], ::buffa::DecodeError> {
+                let _ = ctx;
+                #[allow(unused_variables)]
+                let view = self;
+                let mut cur = cur;
+                match tag.field_number() {
+                    _ => {
+                        ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
+                        let span_len = before_tag.len() - cur.len();
+                        view.__buffa_unknown_fields
+                            .push_record(before_tag, span_len, ctx)?;
+                    }
+                }
+                ::core::result::Result::Ok(cur)
+            }
+            fn to_owned_message(
+                &self,
+            ) -> ::core::result::Result<
+                super::super::ListDevicesRequest,
+                ::buffa::DecodeError,
+            > {
+                self.to_owned_from_source(None)
+            }
+            #[allow(clippy::useless_conversion, clippy::needless_update)]
+            fn to_owned_from_source(
+                &self,
+                __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
+            ) -> ::core::result::Result<
+                super::super::ListDevicesRequest,
+                ::buffa::DecodeError,
+            > {
+                #[allow(unused_imports)]
+                use ::buffa::alloc::string::ToString as _;
+                let _ = __buffa_src;
+                ::core::result::Result::Ok(super::super::ListDevicesRequest {
+                    __buffa_unknown_fields: self
+                        .__buffa_unknown_fields
+                        .to_owned()?
+                        .into(),
+                    ..::core::default::Default::default()
+                })
+            }
+        }
+        impl<'a> ::buffa::ViewEncode<'a> for ListDevicesRequestView<'a> {
+            #[allow(clippy::needless_borrow, clippy::let_and_return)]
+            fn compute_size(&self, _cache: &mut ::buffa::SizeCache) -> u32 {
+                #[allow(unused_imports)]
+                use ::buffa::Enumeration as _;
+                let mut size = 0u64;
+                size += self.__buffa_unknown_fields.encoded_len() as u64;
+                ::buffa::saturate_size(size)
+            }
+            #[allow(clippy::needless_borrow)]
+            fn write_to(
+                &self,
+                _cache: &mut ::buffa::SizeCache,
+                buf: &mut impl ::buffa::EncodeSink,
+            ) {
+                #[allow(unused_imports)]
+                use ::buffa::Enumeration as _;
+                self.__buffa_unknown_fields.write_to(buf);
+            }
+        }
+        /// Serializes this view as protobuf JSON.
+        ///
+        /// Implicit-presence fields with default values are omitted, `required`
+        /// fields are always emitted, explicit-presence (`optional`) fields are
+        /// emitted only when set, bytes fields are base64-encoded, and enum
+        /// values are their proto name strings.
+        ///
+        /// This impl uses `serialize_map(None)` because the number of emitted
+        /// fields depends on default-omission rules; serializers that require
+        /// known map lengths (e.g. `bincode`) will return a runtime error.
+        /// Use the owned message type for those formats.
+        impl<'__a> ::serde::Serialize for ListDevicesRequestView<'__a> {
+            fn serialize<__S: ::serde::Serializer>(
+                &self,
+                __s: __S,
+            ) -> ::core::result::Result<__S::Ok, __S::Error> {
+                use ::serde::ser::SerializeMap as _;
+                let mut __map = __s.serialize_map(::core::option::Option::None)?;
+                __map.end()
+            }
+        }
+        impl<'a> ::buffa::MessageName for ListDevicesRequestView<'a> {
+            const PACKAGE: &'static str = "screen_sensor.v1";
+            const NAME: &'static str = "ListDevicesRequest";
+            const FULL_NAME: &'static str = "screen_sensor.v1.ListDevicesRequest";
+            const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ListDevicesRequest";
+        }
+        ::buffa::impl_default_view_instance!(ListDevicesRequestView);
+        ::buffa::impl_view_reborrow!(ListDevicesRequestView);
+        /** Self-contained, `'static` owned view of a `ListDevicesRequest` message.
+
+ Wraps [`::buffa::OwnedView`]`<`[`ListDevicesRequestView`]`<'static>>`: the decoded view and the [`::buffa::bytes::Bytes`] buffer it borrows from travel together, so the handle is `'static` and `Send + Sync` — suitable for async handlers, spawned tasks, and anywhere a `'static` bound is required.
+
+ Field accessors return borrows tied to `&self`. Use [`Self::view`] to get the full [`ListDevicesRequestView`] when you need struct patterns, iteration helpers, or to pass the view to lifetime-parameterised code.*/
+        #[derive(Clone, Debug)]
+        pub struct ListDevicesRequestOwnedView(
+            ::buffa::OwnedView<ListDevicesRequestView<'static>>,
+        );
+        impl ListDevicesRequestOwnedView {
+            /// Decode an owned view from a [`::buffa::bytes::Bytes`] buffer.
+            ///
+            /// The view borrows directly from the buffer's data; the buffer is
+            /// retained inside the returned handle.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`::buffa::DecodeError`] if the buffer contains invalid
+            /// protobuf data.
+            pub fn decode(
+                bytes: ::buffa::bytes::Bytes,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                ::core::result::Result::Ok(
+                    ListDevicesRequestOwnedView(::buffa::OwnedView::decode(bytes)?),
+                )
+            }
+            /// Decode with custom [`::buffa::DecodeOptions`] (recursion limit,
+            /// max message size).
+            ///
+            /// # Errors
+            ///
+            /// Returns [`::buffa::DecodeError`] if the buffer is invalid or
+            /// exceeds the configured limits.
+            pub fn decode_with_options(
+                bytes: ::buffa::bytes::Bytes,
+                opts: &::buffa::DecodeOptions,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                ::core::result::Result::Ok(
+                    ListDevicesRequestOwnedView(
+                        ::buffa::OwnedView::decode_with_options(bytes, opts)?,
+                    ),
+                )
+            }
+            /// Build from an owned message via an encode → decode round-trip.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`::buffa::DecodeError::MessageTooLarge`] if the
+            /// message's encoded size exceeds the 2 GiB protobuf limit, or
+            /// another [`::buffa::DecodeError`] if the re-encoded bytes are
+            /// somehow invalid (should not happen for well-formed messages).
+            pub fn from_owned(
+                msg: &super::super::ListDevicesRequest,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                ::core::result::Result::Ok(
+                    ListDevicesRequestOwnedView(::buffa::OwnedView::from_owned(msg)?),
+                )
+            }
+            /// Borrow the full [`ListDevicesRequestView`] with its lifetime tied to `&self`.
+            #[must_use]
+            pub fn view(&self) -> &ListDevicesRequestView<'_> {
+                self.0.reborrow()
+            }
+            /// Convert to the owned message type.
+            ///
+            /// Infallible: this type's constructors wire-decode their
+            /// buffer, and a view produced by wire decoding always
+            /// converts. Delegates to [`::buffa::OwnedView::to_owned_message`],
+            /// whose contract also governs handles converted from a raw
+            /// [`::buffa::OwnedView`].
+            #[must_use]
+            pub fn to_owned_message(&self) -> super::super::ListDevicesRequest {
+                self.0.to_owned_message()
+            }
+            /// The underlying bytes buffer.
+            #[must_use]
+            pub fn bytes(&self) -> &::buffa::bytes::Bytes {
+                self.0.bytes()
+            }
+            /// Consume the handle, returning the underlying bytes buffer.
+            #[must_use]
+            pub fn into_bytes(self) -> ::buffa::bytes::Bytes {
+                self.0.into_bytes()
+            }
+        }
+        impl ::core::convert::From<::buffa::OwnedView<ListDevicesRequestView<'static>>>
+        for ListDevicesRequestOwnedView {
+            fn from(inner: ::buffa::OwnedView<ListDevicesRequestView<'static>>) -> Self {
+                ListDevicesRequestOwnedView(inner)
+            }
+        }
+        impl ::core::convert::From<ListDevicesRequestOwnedView>
+        for ::buffa::OwnedView<ListDevicesRequestView<'static>> {
+            fn from(wrapper: ListDevicesRequestOwnedView) -> Self {
+                wrapper.0
+            }
+        }
+        impl ::core::convert::AsRef<::buffa::OwnedView<ListDevicesRequestView<'static>>>
+        for ListDevicesRequestOwnedView {
+            fn as_ref(&self) -> &::buffa::OwnedView<ListDevicesRequestView<'static>> {
+                &self.0
+            }
+        }
+        impl ::buffa::HasMessageView for super::super::ListDevicesRequest {
+            type View<'a> = ListDevicesRequestView<'a>;
+            type ViewHandle = ListDevicesRequestOwnedView;
+        }
+        impl ::serde::Serialize for ListDevicesRequestOwnedView {
+            fn serialize<__S: ::serde::Serializer>(
+                &self,
+                __s: __S,
+            ) -> ::core::result::Result<__S::Ok, __S::Error> {
+                ::serde::Serialize::serialize(&self.0, __s)
+            }
+        }
+        #[derive(Clone, Debug, Default)]
+        pub struct ListDevicesResponseView<'a> {
+            /// Screens (monitors) the configured driver can see.
+            ///
+            /// Field 1: `devices`
+            pub devices: ::buffa::RepeatedView<
+                'a,
+                super::super::super::super::sensor::v1::__buffa::view::DeviceInfoView<'a>,
+            >,
+            pub __buffa_unknown_fields: ::buffa::UnknownFieldsView<'a>,
+        }
+        impl<'a> ::buffa::MessageView<'a> for ListDevicesResponseView<'a> {
+            type Owned = super::super::ListDevicesResponse;
             fn decode_view(
                 buf: &'a [u8],
             ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
@@ -1344,92 +1414,22 @@ pub mod __buffa {
                     1u32 => {
                         ::buffa::encoding::check_wire_type(
                             tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.width = ::buffa::types::decode_uint32(&mut cur)?;
-                    }
-                    2u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.height = ::buffa::types::decode_uint32(&mut cur)?;
-                    }
-                    3u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
                             ::buffa::encoding::WireType::LengthDelimited,
                         )?;
-                        view.format = ::buffa::types::borrow_str(&mut cur)?;
-                    }
-                    4u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::LengthDelimited,
+                        let __sub_ctx = ctx.descend()?;
+                        let sub = ::buffa::types::borrow_bytes(&mut cur)?;
+                        ctx.register_element_memory(
+                            ::core::mem::size_of::<
+                                super::super::super::super::sensor::v1::__buffa::view::DeviceInfoView,
+                            >(),
                         )?;
-                        view.mime_type = ::buffa::types::borrow_str(&mut cur)?;
-                    }
-                    5u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )?;
-                        view.screen_name = ::buffa::types::borrow_str(&mut cur)?;
-                    }
-                    6u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.screen_index = ::buffa::types::decode_uint32(&mut cur)?;
-                    }
-                    7u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Fixed32,
-                        )?;
-                        view.scale_factor = ::buffa::types::decode_float(&mut cur)?;
-                    }
-                    8u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )?;
-                        view.driver = ::buffa::types::borrow_str(&mut cur)?;
-                    }
-                    9u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.captured_at_unix_ms = ::buffa::types::decode_int64(
-                            &mut cur,
-                        )?;
-                    }
-                    10u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.capture_duration_ms = ::buffa::types::decode_uint32(
-                            &mut cur,
-                        )?;
-                    }
-                    11u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.file_size_bytes = ::buffa::types::decode_uint64(&mut cur)?;
-                    }
-                    12u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Varint,
-                        )?;
-                        view.base64_size_bytes = ::buffa::types::decode_uint64(
-                            &mut cur,
-                        )?;
+                        view.devices
+                            .push(
+                                <super::super::super::super::sensor::v1::__buffa::view::DeviceInfoView as ::buffa::MessageView>::decode_view_ctx(
+                                    sub,
+                                    __sub_ctx,
+                                )?,
+                            );
                     }
                     _ => {
                         ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
@@ -1443,7 +1443,7 @@ pub mod __buffa {
             fn to_owned_message(
                 &self,
             ) -> ::core::result::Result<
-                super::super::ImageMetadata,
+                super::super::ListDevicesResponse,
                 ::buffa::DecodeError,
             > {
                 self.to_owned_from_source(None)
@@ -1453,25 +1453,18 @@ pub mod __buffa {
                 &self,
                 __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
             ) -> ::core::result::Result<
-                super::super::ImageMetadata,
+                super::super::ListDevicesResponse,
                 ::buffa::DecodeError,
             > {
                 #[allow(unused_imports)]
                 use ::buffa::alloc::string::ToString as _;
                 let _ = __buffa_src;
-                ::core::result::Result::Ok(super::super::ImageMetadata {
-                    width: self.width,
-                    height: self.height,
-                    format: self.format.to_string(),
-                    mime_type: self.mime_type.to_string(),
-                    screen_name: self.screen_name.to_string(),
-                    screen_index: self.screen_index,
-                    scale_factor: self.scale_factor,
-                    driver: self.driver.to_string(),
-                    captured_at_unix_ms: self.captured_at_unix_ms,
-                    capture_duration_ms: self.capture_duration_ms,
-                    file_size_bytes: self.file_size_bytes,
-                    base64_size_bytes: self.base64_size_bytes,
+                ::core::result::Result::Ok(super::super::ListDevicesResponse {
+                    devices: self
+                        .devices
+                        .iter()
+                        .map(|v| v.to_owned_from_source(__buffa_src))
+                        .collect::<::core::result::Result<_, ::buffa::DecodeError>>()?,
                     __buffa_unknown_fields: self
                         .__buffa_unknown_fields
                         .to_owned()?
@@ -1480,73 +1473,19 @@ pub mod __buffa {
                 })
             }
         }
-        impl<'a> ::buffa::ViewEncode<'a> for ImageMetadataView<'a> {
+        impl<'a> ::buffa::ViewEncode<'a> for ListDevicesResponseView<'a> {
             #[allow(clippy::needless_borrow, clippy::let_and_return)]
-            fn compute_size(&self, _cache: &mut ::buffa::SizeCache) -> u32 {
+            fn compute_size(&self, __cache: &mut ::buffa::SizeCache) -> u32 {
                 #[allow(unused_imports)]
                 use ::buffa::Enumeration as _;
                 let mut size = 0u64;
-                if self.width != 0u32 {
-                    size += 1u64 + ::buffa::types::uint32_encoded_len(self.width) as u64;
-                }
-                if self.height != 0u32 {
+                for v in &self.devices {
+                    let __slot = __cache.reserve();
+                    let inner_size = v.compute_size(__cache);
+                    __cache.set(__slot, inner_size);
                     size
-                        += 1u64 + ::buffa::types::uint32_encoded_len(self.height) as u64;
-                }
-                if !self.format.is_empty() {
-                    size
-                        += 1u64
-                            + ::buffa::types::string_encoded_len(&self.format) as u64;
-                }
-                if !self.mime_type.is_empty() {
-                    size
-                        += 1u64
-                            + ::buffa::types::string_encoded_len(&self.mime_type) as u64;
-                }
-                if !self.screen_name.is_empty() {
-                    size
-                        += 1u64
-                            + ::buffa::types::string_encoded_len(&self.screen_name)
-                                as u64;
-                }
-                if self.screen_index != 0u32 {
-                    size
-                        += 1u64
-                            + ::buffa::types::uint32_encoded_len(self.screen_index)
-                                as u64;
-                }
-                if self.scale_factor.to_bits() != 0u32 {
-                    size += 1u64 + ::buffa::types::FIXED32_ENCODED_LEN as u64;
-                }
-                if !self.driver.is_empty() {
-                    size
-                        += 1u64
-                            + ::buffa::types::string_encoded_len(&self.driver) as u64;
-                }
-                if self.captured_at_unix_ms != 0i64 {
-                    size
-                        += 1u64
-                            + ::buffa::types::int64_encoded_len(self.captured_at_unix_ms)
-                                as u64;
-                }
-                if self.capture_duration_ms != 0u32 {
-                    size
-                        += 1u64
-                            + ::buffa::types::uint32_encoded_len(
-                                self.capture_duration_ms,
-                            ) as u64;
-                }
-                if self.file_size_bytes != 0u64 {
-                    size
-                        += 1u64
-                            + ::buffa::types::uint64_encoded_len(self.file_size_bytes)
-                                as u64;
-                }
-                if self.base64_size_bytes != 0u64 {
-                    size
-                        += 1u64
-                            + ::buffa::types::uint64_encoded_len(self.base64_size_bytes)
-                                as u64;
+                        += 1u64 + ::buffa::encoding::varint_len(inner_size as u64) as u64
+                            + inner_size as u64;
                 }
                 size += self.__buffa_unknown_fields.encoded_len() as u64;
                 ::buffa::saturate_size(size)
@@ -1554,50 +1493,18 @@ pub mod __buffa {
             #[allow(clippy::needless_borrow)]
             fn write_to(
                 &self,
-                _cache: &mut ::buffa::SizeCache,
+                __cache: &mut ::buffa::SizeCache,
                 buf: &mut impl ::buffa::EncodeSink,
             ) {
                 #[allow(unused_imports)]
                 use ::buffa::Enumeration as _;
-                if self.width != 0u32 {
-                    ::buffa::types::put_uint32_field(1u32, self.width, buf);
-                }
-                if self.height != 0u32 {
-                    ::buffa::types::put_uint32_field(2u32, self.height, buf);
-                }
-                if !self.format.is_empty() {
-                    ::buffa::types::put_string_field(3u32, &self.format, buf);
-                }
-                if !self.mime_type.is_empty() {
-                    ::buffa::types::put_string_field(4u32, &self.mime_type, buf);
-                }
-                if !self.screen_name.is_empty() {
-                    ::buffa::types::put_string_field(5u32, &self.screen_name, buf);
-                }
-                if self.screen_index != 0u32 {
-                    ::buffa::types::put_uint32_field(6u32, self.screen_index, buf);
-                }
-                if self.scale_factor.to_bits() != 0u32 {
-                    ::buffa::types::put_float_field(7u32, self.scale_factor, buf);
-                }
-                if !self.driver.is_empty() {
-                    ::buffa::types::put_string_field(8u32, &self.driver, buf);
-                }
-                if self.captured_at_unix_ms != 0i64 {
-                    ::buffa::types::put_int64_field(9u32, self.captured_at_unix_ms, buf);
-                }
-                if self.capture_duration_ms != 0u32 {
-                    ::buffa::types::put_uint32_field(
-                        10u32,
-                        self.capture_duration_ms,
+                for v in &self.devices {
+                    ::buffa::types::put_len_delimited_header(
+                        1u32,
+                        u64::from(__cache.consume_next()),
                         buf,
                     );
-                }
-                if self.file_size_bytes != 0u64 {
-                    ::buffa::types::put_uint64_field(11u32, self.file_size_bytes, buf);
-                }
-                if self.base64_size_bytes != 0u64 {
-                    ::buffa::types::put_uint64_field(12u32, self.base64_size_bytes, buf);
+                    v.write_to(__cache, buf);
                 }
                 self.__buffa_unknown_fields.write_to(buf);
             }
@@ -1613,108 +1520,37 @@ pub mod __buffa {
         /// fields depends on default-omission rules; serializers that require
         /// known map lengths (e.g. `bincode`) will return a runtime error.
         /// Use the owned message type for those formats.
-        impl<'__a> ::serde::Serialize for ImageMetadataView<'__a> {
+        impl<'__a> ::serde::Serialize for ListDevicesResponseView<'__a> {
             fn serialize<__S: ::serde::Serializer>(
                 &self,
                 __s: __S,
             ) -> ::core::result::Result<__S::Ok, __S::Error> {
                 use ::serde::ser::SerializeMap as _;
                 let mut __map = __s.serialize_map(::core::option::Option::None)?;
-                if !::buffa::json_helpers::skip_if::is_zero_u32(&self.width) {
-                    __map
-                        .serialize_entry(
-                            "width",
-                            &::buffa::json_helpers::ProtoJson(&self.width),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_u32(&self.height) {
-                    __map
-                        .serialize_entry(
-                            "height",
-                            &::buffa::json_helpers::ProtoJson(&self.height),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_empty_str(self.format) {
-                    __map.serialize_entry("format", self.format)?;
-                }
-                if !::buffa::json_helpers::skip_if::is_empty_str(self.mime_type) {
-                    __map.serialize_entry("mimeType", self.mime_type)?;
-                }
-                if !::buffa::json_helpers::skip_if::is_empty_str(self.screen_name) {
-                    __map.serialize_entry("screenName", self.screen_name)?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_u32(&self.screen_index) {
-                    __map
-                        .serialize_entry(
-                            "screenIndex",
-                            &::buffa::json_helpers::ProtoJson(&self.screen_index),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_f32(&self.scale_factor) {
-                    __map
-                        .serialize_entry(
-                            "scaleFactor",
-                            &::buffa::json_helpers::ProtoJson(&self.scale_factor),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_empty_str(self.driver) {
-                    __map.serialize_entry("driver", self.driver)?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_i64(
-                    &self.captured_at_unix_ms,
-                ) {
-                    __map
-                        .serialize_entry(
-                            "capturedAtUnixMs",
-                            &::buffa::json_helpers::ProtoJson(&self.captured_at_unix_ms),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_u32(
-                    &self.capture_duration_ms,
-                ) {
-                    __map
-                        .serialize_entry(
-                            "captureDurationMs",
-                            &::buffa::json_helpers::ProtoJson(&self.capture_duration_ms),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_u64(&self.file_size_bytes) {
-                    __map
-                        .serialize_entry(
-                            "fileSizeBytes",
-                            &::buffa::json_helpers::ProtoJson(&self.file_size_bytes),
-                        )?;
-                }
-                if !::buffa::json_helpers::skip_if::is_zero_u64(
-                    &self.base64_size_bytes,
-                ) {
-                    __map
-                        .serialize_entry(
-                            "base64SizeBytes",
-                            &::buffa::json_helpers::ProtoJson(&self.base64_size_bytes),
-                        )?;
+                if !self.devices.is_empty() {
+                    __map.serialize_entry("devices", &*self.devices)?;
                 }
                 __map.end()
             }
         }
-        impl<'a> ::buffa::MessageName for ImageMetadataView<'a> {
+        impl<'a> ::buffa::MessageName for ListDevicesResponseView<'a> {
             const PACKAGE: &'static str = "screen_sensor.v1";
-            const NAME: &'static str = "ImageMetadata";
-            const FULL_NAME: &'static str = "screen_sensor.v1.ImageMetadata";
-            const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ImageMetadata";
+            const NAME: &'static str = "ListDevicesResponse";
+            const FULL_NAME: &'static str = "screen_sensor.v1.ListDevicesResponse";
+            const TYPE_URL: &'static str = "type.googleapis.com/screen_sensor.v1.ListDevicesResponse";
         }
-        ::buffa::impl_default_view_instance!(ImageMetadataView);
-        ::buffa::impl_view_reborrow!(ImageMetadataView);
-        /** Self-contained, `'static` owned view of a `ImageMetadata` message.
+        ::buffa::impl_default_view_instance!(ListDevicesResponseView);
+        ::buffa::impl_view_reborrow!(ListDevicesResponseView);
+        /** Self-contained, `'static` owned view of a `ListDevicesResponse` message.
 
- Wraps [`::buffa::OwnedView`]`<`[`ImageMetadataView`]`<'static>>`: the decoded view and the [`::buffa::bytes::Bytes`] buffer it borrows from travel together, so the handle is `'static` and `Send + Sync` — suitable for async handlers, spawned tasks, and anywhere a `'static` bound is required.
+ Wraps [`::buffa::OwnedView`]`<`[`ListDevicesResponseView`]`<'static>>`: the decoded view and the [`::buffa::bytes::Bytes`] buffer it borrows from travel together, so the handle is `'static` and `Send + Sync` — suitable for async handlers, spawned tasks, and anywhere a `'static` bound is required.
 
- Field accessors return borrows tied to `&self`. Use [`Self::view`] to get the full [`ImageMetadataView`] when you need struct patterns, iteration helpers, or to pass the view to lifetime-parameterised code.*/
+ Field accessors return borrows tied to `&self`. Use [`Self::view`] to get the full [`ListDevicesResponseView`] when you need struct patterns, iteration helpers, or to pass the view to lifetime-parameterised code.*/
         #[derive(Clone, Debug)]
-        pub struct ImageMetadataOwnedView(
-            ::buffa::OwnedView<ImageMetadataView<'static>>,
+        pub struct ListDevicesResponseOwnedView(
+            ::buffa::OwnedView<ListDevicesResponseView<'static>>,
         );
-        impl ImageMetadataOwnedView {
+        impl ListDevicesResponseOwnedView {
             /// Decode an owned view from a [`::buffa::bytes::Bytes`] buffer.
             ///
             /// The view borrows directly from the buffer's data; the buffer is
@@ -1728,7 +1564,7 @@ pub mod __buffa {
                 bytes: ::buffa::bytes::Bytes,
             ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
                 ::core::result::Result::Ok(
-                    ImageMetadataOwnedView(::buffa::OwnedView::decode(bytes)?),
+                    ListDevicesResponseOwnedView(::buffa::OwnedView::decode(bytes)?),
                 )
             }
             /// Decode with custom [`::buffa::DecodeOptions`] (recursion limit,
@@ -1743,7 +1579,7 @@ pub mod __buffa {
                 opts: &::buffa::DecodeOptions,
             ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
                 ::core::result::Result::Ok(
-                    ImageMetadataOwnedView(
+                    ListDevicesResponseOwnedView(
                         ::buffa::OwnedView::decode_with_options(bytes, opts)?,
                     ),
                 )
@@ -1757,15 +1593,15 @@ pub mod __buffa {
             /// another [`::buffa::DecodeError`] if the re-encoded bytes are
             /// somehow invalid (should not happen for well-formed messages).
             pub fn from_owned(
-                msg: &super::super::ImageMetadata,
+                msg: &super::super::ListDevicesResponse,
             ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
                 ::core::result::Result::Ok(
-                    ImageMetadataOwnedView(::buffa::OwnedView::from_owned(msg)?),
+                    ListDevicesResponseOwnedView(::buffa::OwnedView::from_owned(msg)?),
                 )
             }
-            /// Borrow the full [`ImageMetadataView`] with its lifetime tied to `&self`.
+            /// Borrow the full [`ListDevicesResponseView`] with its lifetime tied to `&self`.
             #[must_use]
-            pub fn view(&self) -> &ImageMetadataView<'_> {
+            pub fn view(&self) -> &ListDevicesResponseView<'_> {
                 self.0.reborrow()
             }
             /// Convert to the owned message type.
@@ -1776,7 +1612,7 @@ pub mod __buffa {
             /// whose contract also governs handles converted from a raw
             /// [`::buffa::OwnedView`].
             #[must_use]
-            pub fn to_owned_message(&self) -> super::super::ImageMetadata {
+            pub fn to_owned_message(&self) -> super::super::ListDevicesResponse {
                 self.0.to_owned_message()
             }
             /// The underlying bytes buffer.
@@ -1789,101 +1625,44 @@ pub mod __buffa {
             pub fn into_bytes(self) -> ::buffa::bytes::Bytes {
                 self.0.into_bytes()
             }
-            /// Field 1: `width`
-            #[must_use]
-            pub fn width(&self) -> u32 {
-                self.0.reborrow().width
-            }
-            /// Field 2: `height`
-            #[must_use]
-            pub fn height(&self) -> u32 {
-                self.0.reborrow().height
-            }
-            /// "png" or "jpeg".
+            /// Screens (monitors) the configured driver can see.
             ///
-            /// Field 3: `format`
+            /// Field 1: `devices`
             #[must_use]
-            pub fn format(&self) -> &'_ str {
-                self.0.reborrow().format
-            }
-            /// "image/png" or "image/jpeg".
-            ///
-            /// Field 4: `mime_type`
-            #[must_use]
-            pub fn mime_type(&self) -> &'_ str {
-                self.0.reborrow().mime_type
-            }
-            /// Field 5: `screen_name`
-            #[must_use]
-            pub fn screen_name(&self) -> &'_ str {
-                self.0.reborrow().screen_name
-            }
-            /// Field 6: `screen_index`
-            #[must_use]
-            pub fn screen_index(&self) -> u32 {
-                self.0.reborrow().screen_index
-            }
-            /// Field 7: `scale_factor`
-            #[must_use]
-            pub fn scale_factor(&self) -> f32 {
-                self.0.reborrow().scale_factor
-            }
-            /// Sub-driver that took the picture, e.g. "xcap" or "linux-x11".
-            ///
-            /// Field 8: `driver`
-            #[must_use]
-            pub fn driver(&self) -> &'_ str {
-                self.0.reborrow().driver
-            }
-            /// Field 9: `captured_at_unix_ms`
-            #[must_use]
-            pub fn captured_at_unix_ms(&self) -> i64 {
-                self.0.reborrow().captured_at_unix_ms
-            }
-            /// Field 10: `capture_duration_ms`
-            #[must_use]
-            pub fn capture_duration_ms(&self) -> u32 {
-                self.0.reborrow().capture_duration_ms
-            }
-            /// Size of `image` in bytes (the encoded PNG/JPEG file).
-            ///
-            /// Field 11: `file_size_bytes`
-            #[must_use]
-            pub fn file_size_bytes(&self) -> u64 {
-                self.0.reborrow().file_size_bytes
-            }
-            /// Size of `image` once base64-encoded, as it travels in Connect JSON and NATS JSON
-            /// replies (4 * ceil(file_size_bytes / 3)). Compare with the NATS max_payload.
-            ///
-            /// Field 12: `base64_size_bytes`
-            #[must_use]
-            pub fn base64_size_bytes(&self) -> u64 {
-                self.0.reborrow().base64_size_bytes
+            pub fn devices(
+                &self,
+            ) -> &::buffa::RepeatedView<
+                '_,
+                super::super::super::super::sensor::v1::__buffa::view::DeviceInfoView<'_>,
+            > {
+                &self.0.reborrow().devices
             }
         }
-        impl ::core::convert::From<::buffa::OwnedView<ImageMetadataView<'static>>>
-        for ImageMetadataOwnedView {
-            fn from(inner: ::buffa::OwnedView<ImageMetadataView<'static>>) -> Self {
-                ImageMetadataOwnedView(inner)
+        impl ::core::convert::From<::buffa::OwnedView<ListDevicesResponseView<'static>>>
+        for ListDevicesResponseOwnedView {
+            fn from(
+                inner: ::buffa::OwnedView<ListDevicesResponseView<'static>>,
+            ) -> Self {
+                ListDevicesResponseOwnedView(inner)
             }
         }
-        impl ::core::convert::From<ImageMetadataOwnedView>
-        for ::buffa::OwnedView<ImageMetadataView<'static>> {
-            fn from(wrapper: ImageMetadataOwnedView) -> Self {
+        impl ::core::convert::From<ListDevicesResponseOwnedView>
+        for ::buffa::OwnedView<ListDevicesResponseView<'static>> {
+            fn from(wrapper: ListDevicesResponseOwnedView) -> Self {
                 wrapper.0
             }
         }
-        impl ::core::convert::AsRef<::buffa::OwnedView<ImageMetadataView<'static>>>
-        for ImageMetadataOwnedView {
-            fn as_ref(&self) -> &::buffa::OwnedView<ImageMetadataView<'static>> {
+        impl ::core::convert::AsRef<::buffa::OwnedView<ListDevicesResponseView<'static>>>
+        for ListDevicesResponseOwnedView {
+            fn as_ref(&self) -> &::buffa::OwnedView<ListDevicesResponseView<'static>> {
                 &self.0
             }
         }
-        impl ::buffa::HasMessageView for super::super::ImageMetadata {
-            type View<'a> = ImageMetadataView<'a>;
-            type ViewHandle = ImageMetadataOwnedView;
+        impl ::buffa::HasMessageView for super::super::ListDevicesResponse {
+            type View<'a> = ListDevicesResponseView<'a>;
+            type ViewHandle = ListDevicesResponseOwnedView;
         }
-        impl ::serde::Serialize for ImageMetadataOwnedView {
+        impl ::serde::Serialize for ListDevicesResponseOwnedView {
             fn serialize<__S: ::serde::Serializer>(
                 &self,
                 __s: __S,
@@ -1896,7 +1675,8 @@ pub mod __buffa {
     pub fn register_types(reg: &mut ::buffa::type_registry::TypeRegistry) {
         reg.register_json_any(super::__CAPTURE_REQUEST_JSON_ANY);
         reg.register_json_any(super::__CAPTURE_RESPONSE_JSON_ANY);
-        reg.register_json_any(super::__IMAGE_METADATA_JSON_ANY);
+        reg.register_json_any(super::__LIST_DEVICES_REQUEST_JSON_ANY);
+        reg.register_json_any(super::__LIST_DEVICES_RESPONSE_JSON_ANY);
     }
 }
 #[doc(inline)]
@@ -1908,8 +1688,12 @@ pub use self::__buffa::view::CaptureResponseView;
 #[doc(inline)]
 pub use self::__buffa::view::CaptureResponseOwnedView;
 #[doc(inline)]
-pub use self::__buffa::view::ImageMetadataView;
+pub use self::__buffa::view::ListDevicesRequestView;
 #[doc(inline)]
-pub use self::__buffa::view::ImageMetadataOwnedView;
+pub use self::__buffa::view::ListDevicesRequestOwnedView;
+#[doc(inline)]
+pub use self::__buffa::view::ListDevicesResponseView;
+#[doc(inline)]
+pub use self::__buffa::view::ListDevicesResponseOwnedView;
 #[doc(inline)]
 pub use self::__buffa::register_types;

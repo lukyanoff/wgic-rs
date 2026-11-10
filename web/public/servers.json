@@ -1,5 +1,21 @@
 [
   { "name": "local 8080", "url": "http://127.0.0.1:8080", "mode": "proxy" },
   { "name": "local 8081", "url": "http://127.0.0.1:8081", "mode": "proxy" },
-  { "name": "nats ws", "url": "ws://localhost:9222", "mode": "nats", "prefix": "rpc" }
+  { "name": "nats ws", "url": "ws://localhost:9222", "mode": "nats", "prefix": "rpc" },
+  { "name": "screen-1 http (8081)", "url": "http://127.0.0.1:8081", "mode": "proxy" },
+  { "name": "screen-2 http (8082)", "url": "http://127.0.0.1:8082", "mode": "proxy" },
+  { "name": "cam-1 http (8083)", "url": "http://127.0.0.1:8083", "mode": "proxy" },
+  { "name": "cam-2 http (8084)", "url": "http://127.0.0.1:8084", "mode": "proxy" },
+  { "name": "screen-1 nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "screen-1" },
+  { "name": "screen-2 nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "screen-2" },
+  { "name": "cam-1 nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "cam-1" },
+  { "name": "cam-2 nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "cam-2" },
+  { "name": "llm-claude http (8091)", "url": "http://127.0.0.1:8091", "mode": "proxy" },
+  { "name": "llm-agy http (8092)", "url": "http://127.0.0.1:8092", "mode": "proxy" },
+  { "name": "llm-openai http (8093)", "url": "http://127.0.0.1:8093", "mode": "proxy" },
+  { "name": "llm-openrouter http (8094)", "url": "http://127.0.0.1:8094", "mode": "proxy" },
+  { "name": "llm-claude nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "llm-claude" },
+  { "name": "llm-agy nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "llm-agy" },
+  { "name": "llm-openai nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "llm-openai" },
+  { "name": "llm-openrouter nats", "url": "ws://localhost:9222", "mode": "nats", "prefix": "llm-openrouter" }
 ]

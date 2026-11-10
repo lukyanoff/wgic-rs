@@ -7,7 +7,7 @@ use async_nats::HeaderMap;
 use async_nats::service::endpoint::Endpoint;
 use async_nats::service::{Request as NatsRequest, Service, ServiceExt};
 use bytes::Bytes;
-use connectrpc::ConnectRpcService;
+use connectrpc::{ConnectRpcBody, ConnectRpcService};
 use futures::StreamExt;
 use http::{HeaderName, HeaderValue, Request, StatusCode, response};
 use http_body_util::{BodyExt, Full};
@@ -17,7 +17,8 @@ use tracing::field::Empty;
 use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::wire::{CONNECT_CODE, NatsConfig, endpoint_name, parse_connect_error, subject_for};
+use super::stream::publish_stream;
+use super::wire::{CONNECT_CODE, NatsConfig, endpoint_name, is_streaming, parse_connect_error, subject_for};
 use crate::telemetry::{continue_trace, extract_nats, inject_http, is_propagation_header};
 
 type Reply = (Result<Bytes, async_nats::service::error::Error>, HeaderMap);
@@ -44,7 +45,7 @@ pub async fn serve_nats(
     for path in methods {
         let rpc_path = format!("/{}", path.trim_start_matches('/'));
         let endpoint = add_endpoint(&micro, cfg, &rpc_path, &mut taken).await?;
-        loops.push(tokio::spawn(serve_endpoint(endpoint, service.clone(), rpc_path)));
+        loops.push(tokio::spawn(serve_endpoint(endpoint, service.clone(), nc.clone(), rpc_path)));
     }
     tracing::info!(service = %name, version = %cfg.version, url = %cfg.url, "nats: micro service started");
     for task in loops {
@@ -73,16 +74,37 @@ async fn add_endpoint(
 }
 
 /// Answer requests for one endpoint, each in its own task.
-async fn serve_endpoint(mut endpoint: Endpoint, service: ConnectRpcService, rpc_path: String) {
+async fn serve_endpoint(mut endpoint: Endpoint, service: ConnectRpcService, nc: async_nats::Client, rpc_path: String) {
     while let Some(request) = endpoint.next().await {
         let span = receive_span(&request.message);
-        let task = respond(request, service.clone(), rpc_path.clone());
+        let task = respond(request, service.clone(), nc.clone(), rpc_path.clone());
         tokio::spawn(task.instrument(span));
     }
 }
 
-async fn respond(request: NatsRequest, service: ConnectRpcService, rpc_path: String) {
-    let (result, headers) = handle(service, &rpc_path, &request.message).await;
+async fn respond(request: NatsRequest, service: ConnectRpcService, nc: async_nats::Client, rpc_path: String) {
+    let response = match call_service(service, &rpc_path, &request.message).await {
+        Ok(response) => response,
+        Err(reply) => return send_reply(request, reply, &rpc_path).await,
+    };
+    let (parts, body) = response.into_parts();
+    let content_type = parts.headers.get(http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok());
+    let reply_subject = request.message.reply.clone();
+    if let (StatusCode::OK, true, Some(reply_subject)) = (parts.status, is_streaming(content_type), reply_subject) {
+        if let Err(e) = publish_stream(&nc, reply_subject, &parts, body).await {
+            tracing::error!(rpc = %rpc_path, error = %e, "nats: failed to stream reply");
+        }
+        return;
+    }
+    let reply = match body.collect().await {
+        Ok(body) => to_reply(&parts, body.to_bytes()),
+        Err(e) => error_reply(500, "internal", e.to_string(), HeaderMap::new()),
+    };
+    send_reply(request, reply, &rpc_path).await
+}
+
+async fn send_reply(request: NatsRequest, reply: Reply, rpc_path: &str) {
+    let (result, headers) = reply;
     if let Err(e) = &result {
         let span = Span::current();
         span.record("otel.status_code", "ERROR");
@@ -120,21 +142,21 @@ fn error_reply(status: u16, code: &str, message: String, mut headers: HeaderMap)
     (Err(error), headers)
 }
 
-/// Bridge one NATS request into the connect router and back.
-async fn handle(service: ConnectRpcService, rpc_path: &str, msg: &async_nats::Message) -> Reply {
+/// Bridge one NATS request into the connect router. A request that can't be built is an error reply.
+async fn call_service(
+    service: ConnectRpcService,
+    rpc_path: &str,
+    msg: &async_nats::Message,
+) -> Result<http::Response<ConnectRpcBody>, Reply> {
     let request = match to_http_request(rpc_path, msg) {
         Ok(r) => r,
         Err(e) => {
             let message = format!("bad request: {e}");
-            return error_reply(400, "invalid_argument", message, HeaderMap::new());
+            return Err(error_reply(400, "invalid_argument", message, HeaderMap::new()));
         }
     };
     let Ok(response) = service.oneshot(request).await; // error type is Infallible
-    let (parts, body) = response.into_parts();
-    match body.collect().await {
-        Ok(body) => to_reply(&parts, body.to_bytes()),
-        Err(e) => error_reply(500, "internal", e.to_string(), HeaderMap::new()),
-    }
+    Ok(response)
 }
 
 /// NATS message → HTTP request the connect router understands.

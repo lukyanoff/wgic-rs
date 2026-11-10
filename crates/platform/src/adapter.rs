@@ -59,7 +59,8 @@ impl Adapter for NatsAdapter {
             let (client, config) = (self.client.clone(), self.config.clone());
             async move {
                 let service = traced_service(router);
-                serve_nats(service, methods, client, &config, module.name()).await
+                let name = config.service_name(module.name());
+                serve_nats(service, methods, client, &config, &name).await
             }
         });
         let all = try_join_all(runs);

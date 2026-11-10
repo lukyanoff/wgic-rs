@@ -9,6 +9,23 @@ pub mod proto {
             include!("gen/connect/greet.v1.rs");
         }
     }
+    pub mod llm_caller {
+        pub mod v1 {
+            include!("gen/buffa/llm_caller.v1.rs");
+            include!("gen/connect/llm_caller.v1.rs");
+        }
+    }
+    pub mod sensor {
+        pub mod v1 {
+            include!("gen/buffa/sensor.v1.rs");
+        }
+    }
+    pub mod camera_sensor {
+        pub mod v1 {
+            include!("gen/buffa/camera_sensor.v1.rs");
+            include!("gen/connect/camera_sensor.v1.rs");
+        }
+    }
     pub mod screen_sensor {
         pub mod v1 {
             include!("gen/buffa/screen_sensor.v1.rs");

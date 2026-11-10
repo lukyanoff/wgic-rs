@@ -41,3 +41,31 @@ fn empty_message_falls_back_to_code() {
 fn non_json_error_body_is_kept_as_message() {
     assert_eq!(parse_connect_error(b"boom"), ("unknown".into(), "boom".into()));
 }
+
+#[test]
+fn service_name_is_module_name_without_instance() {
+    assert_eq!(service_name("screen_sensor", None), "screen_sensor");
+}
+
+#[test]
+fn service_name_appends_instance() {
+    assert_eq!(service_name("screen_sensor", Some("screen-1")), "screen_sensor-screen-1");
+}
+
+#[test]
+fn service_name_sanitizes_instance() {
+    assert_eq!(service_name("camera_sensor", Some("cam 1.front")), "camera_sensor-cam_1_front");
+}
+
+#[test]
+fn connect_plus_content_types_are_streaming() {
+    assert!(is_streaming(Some("application/connect+json")));
+    assert!(is_streaming(Some("application/connect+proto")));
+}
+
+#[test]
+fn unary_or_missing_content_types_are_not_streaming() {
+    assert!(!is_streaming(Some("application/json")));
+    assert!(!is_streaming(Some("application/proto")));
+    assert!(!is_streaming(None));
+}

@@ -13,10 +13,14 @@ use tracing::field::Empty;
 use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::wire::{CONNECT_CODE, NATS_SERVICE_ERROR, NATS_SERVICE_ERROR_CODE, code_for_status, subject_for};
+use super::stream::{NatsBody, StreamCall, request_stream};
+use super::wire::{
+    CONNECT_CODE, NATS_SERVICE_ERROR, NATS_SERVICE_ERROR_CODE, code_for_status, is_streaming, subject_for,
+};
 use crate::telemetry::{continue_trace, extract_http, inject_nats, is_propagation_header};
 
-/// `ClientTransport` that sends Connect unary calls over NATS request/reply:
+/// `ClientTransport` that sends Connect calls over NATS: unary ones as request/reply,
+/// server-streaming ones as a request whose replies are streamed to an inbox (see `stream.rs`):
 ///
 /// ```ignore
 /// let client = GreetServiceClient::new(NatsTransport::new(nc, "rpc"), ClientConfig::new("http://nats".parse()?));
@@ -34,10 +38,10 @@ impl NatsTransport {
 }
 
 impl ClientTransport for NatsTransport {
-    type ResponseBody = Full<Bytes>;
+    type ResponseBody = NatsBody;
     type Error = ConnectError;
 
-    fn send(&self, request: Request<ClientBody>) -> BoxFuture<'static, Result<Response<Full<Bytes>>, ConnectError>> {
+    fn send(&self, request: Request<ClientBody>) -> BoxFuture<'static, Result<Response<NatsBody>, ConnectError>> {
         let nc = self.nc.clone();
         let (parts, body) = request.into_parts();
         let subject = subject_for(&self.prefix, parts.uri.path());
@@ -47,16 +51,37 @@ impl ClientTransport for NatsTransport {
         continue_trace(&span, extract_http(&parts.headers));
         let call = async move {
             let payload = body.collect().await?.to_bytes();
+            let content_type = parts.headers.get(http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok());
+            if is_streaming(content_type) {
+                return send_streaming(&nc, subject, &parts.headers, payload).await;
+            }
             let request = async_nats::Request::new()
                 .payload(payload)
                 .headers(nats_headers(&parts.headers))
                 .timeout(timeout_from(&parts.headers));
             let reply = nc.send_request(subject.clone(), request).await.map_err(|e| request_failed(&subject, e))?;
             record_service_error(&reply);
-            Ok(reply_to_response(reply))
+            Ok(boxed(reply_to_response(reply)))
         };
         Box::pin(call.instrument(span))
     }
+}
+
+/// Server-streaming call: the first reply is either an error reply or the start of the stream.
+async fn send_streaming(
+    nc: &async_nats::Client,
+    subject: String,
+    http_headers: &http::HeaderMap,
+    payload: Bytes,
+) -> Result<Response<NatsBody>, ConnectError> {
+    let idle_timeout = timeout_from(http_headers);
+    let call = StreamCall { subject, headers: nats_headers(http_headers), payload, idle_timeout };
+    let (headers, mut response) = request_stream(nc, call).await?;
+    if let Some(status) = headers.get(NATS_SERVICE_ERROR_CODE) {
+        return Ok(boxed(error_response(&headers, status.as_str())));
+    }
+    copy_headers(&headers, response.headers_mut());
+    Ok(response)
 }
 
 fn request_span(subject: &str) -> Span {
@@ -124,7 +149,17 @@ fn reply_to_response(reply: async_nats::Message) -> Response<Full<Bytes>> {
         return error_response(&headers, status.as_str());
     }
     let mut response = Response::new(Full::new(reply.payload));
-    for (name, values) in headers.iter() {
+    copy_headers(&headers, response.headers_mut());
+    response
+}
+
+/// A one-chunk body as the transport's body type. `Full` never fails, so its error never happens.
+fn boxed(response: Response<Full<Bytes>>) -> Response<NatsBody> {
+    response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
+}
+
+fn copy_headers(from: &HeaderMap, to: &mut http::HeaderMap) {
+    for (name, values) in from.iter() {
         let name: &NatsHeaderName = name;
         let Ok(name) = HeaderName::from_bytes(AsRef::<str>::as_ref(name).as_bytes()) else {
             continue;
@@ -132,11 +167,10 @@ fn reply_to_response(reply: async_nats::Message) -> Response<Full<Bytes>> {
         for value in values {
             let value: &NatsHeaderValue = value;
             if let Ok(v) = HeaderValue::from_str(value.as_str()) {
-                response.headers_mut().append(name.clone(), v);
+                to.append(name.clone(), v);
             }
         }
     }
-    response
 }
 
 /// A NATS micro error reply as a Connect unary error response.

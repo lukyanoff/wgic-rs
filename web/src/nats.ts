@@ -8,9 +8,10 @@ import {
   type MsgHdrs,
   type NatsConnection,
 } from '@nats-io/nats-core'
+import { isStreaming, natsStream, type StreamCall } from './natsStream'
 import { endSpan, extractContext, isPropagationHeader, SpanKind, startSpan, traceHeaders } from './otel'
 
-// Calls Connect unary RPCs over NATS (WebSocket), using the same wire format as
+// Calls Connect unary and server-streaming RPCs over NATS (WebSocket), using the same wire format as
 // the Rust adapter in src/nats.rs:
 // - subject: <prefix>.<package.Service>.<Method>
 // - request: payload = message, headers = Content-Type + RPC metadata
@@ -112,7 +113,9 @@ export function natsFetch(url: string, prefix: string): typeof fetch {
 
     let failure: string | undefined
     try {
-      const res = await natsRequestResponse(url, subject, body, hdrs, timeout, init?.signal ?? undefined)
+      const streaming = isStreaming(req.headers.get('content-type'))
+      const call = { url, subject, body, hdrs, timeout, streaming, signal: init?.signal ?? undefined }
+      const res = await natsRequestResponse(call)
       if (res.status !== 200) failure = `${res.status} ${res.headers.get('x-nats-error') ?? ''}`.trim()
       span.setAttribute('messaging.nats.reply_status', res.status)
       return res
@@ -125,14 +128,37 @@ export function natsFetch(url: string, prefix: string): typeof fetch {
   }
 }
 
-async function natsRequestResponse(
-  url: string,
-  subject: string,
-  body: Uint8Array,
-  hdrs: MsgHdrs,
-  timeout: number,
-  signal?: AbortSignal,
-): Promise<Response> {
+type NatsCall = {
+  url: string
+  subject: string
+  body: Uint8Array
+  hdrs: MsgHdrs
+  timeout: number
+  streaming: boolean
+  signal?: AbortSignal
+}
+
+/** Server-streaming call: the first reply is an error reply or the start of the stream. */
+async function streamResponse(nc: NatsConnection, call: StreamCall): Promise<Response> {
+  const { first, body } = await natsStream(nc, call)
+  if (first.headers?.code === 503) {
+    return errorResponse(503, 'unavailable', `no NATS responders for ${call.subject}`)
+  }
+  if (first.headers?.get('Nats-Service-Error-Code')) return replyToResponse(first)
+  const out = new Headers()
+  for (const [k, vs] of first.headers ?? []) for (const v of vs) out.append(k, v)
+  return new Response(body, { status: 200, headers: out })
+}
+
+async function natsRequestResponse({
+  url,
+  subject,
+  body,
+  hdrs,
+  timeout,
+  streaming,
+  signal,
+}: NatsCall): Promise<Response> {
   let nc: NatsConnection
   try {
     nc = await getConnection(url)
@@ -147,6 +173,10 @@ async function natsRequestResponse(
     }),
   )
   try {
+    if (streaming) {
+      const call = { subject, body, headers: hdrs, idleTimeoutMs: timeout }
+      return await Promise.race([streamResponse(nc, call), aborted])
+    }
     const msg = await Promise.race([nc.request(subject, body, { timeout, headers: hdrs }), aborted])
     return replyToResponse(msg)
   } catch (e) {

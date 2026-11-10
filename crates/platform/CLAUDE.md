@@ -9,6 +9,7 @@ src/host.rs         run modules on adapters chosen by env (ADDR, HTTP_DISABLED, 
 src/adapter.rs      trait Adapter + HttpAdapter (all modules, one port) + NatsAdapter (one micro service per module)
 src/http_server.rs  axum server + CORS (CORS_ORIGINS)
 src/nats/           wire.rs (pure naming/status rules) · server.rs (micro endpoints) · client.rs (NatsTransport)
+                    stream.rs (server streaming: body chunks → reply inbox, then `Nats-Stream-End`)
 src/telemetry/      init.rs (traces/logs/metrics providers) · logs.rs (JSON) · propagation.rs (W3C headers)
                     interceptor.rs (rpc.server span + rpc.server.call.duration) · client.rs (rpc.client)
                     log_backend.rs (TracingLogs) · metrics_backend.rs (OtelMetrics) · test_meter.rs (tests only)

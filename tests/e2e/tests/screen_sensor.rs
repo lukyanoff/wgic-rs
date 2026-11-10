@@ -23,6 +23,7 @@ fn assert_png_or_no_display(result: Result<CaptureResponse, ConnectError>) {
             assert!(response.image.starts_with(&[0x89, b'P', b'N', b'G']));
             assert!(response.metadata.width > 0 && response.metadata.height > 0);
             assert_eq!(response.metadata.driver, "xcap");
+            assert_eq!(response.metadata.kind, "screen");
         }
         Err(error) => assert_eq!(error.code, ErrorCode::Unavailable, "unexpected error: {error:?}"),
     }

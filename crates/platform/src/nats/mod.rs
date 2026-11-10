@@ -1,6 +1,6 @@
 //! NATS micro adapter for connectrpc.
 //!
-//! NATS carries Connect-protocol **unary** messages, so every service registered in a
+//! NATS carries Connect-protocol unary **and server-streaming** messages, so every service registered in a
 //! [`connectrpc::Router`] can be hosted on NATS ([`serve_nats`]) and every generated
 //! client can call over NATS ([`NatsTransport`]), with no per-service code.
 //!
@@ -12,11 +12,16 @@
 //! - success reply: payload = message, header `Content-Type`
 //! - error reply: empty payload, headers `Nats-Service-Error` (message),
 //!   `Nats-Service-Error-Code` (HTTP status) and `Connect-Code` (e.g. `invalid_argument`)
+//! - server streaming (`Content-Type: application/connect+json|proto`): the request's reply
+//!   subject gets one message per Connect envelope chunk, then an empty message with header
+//!   `Nats-Stream-End: 1` (see `stream.rs`)
 
 mod client;
 mod server;
+mod stream;
 mod wire;
 
 pub use client::NatsTransport;
 pub use server::serve_nats;
-pub use wire::{CONNECT_CODE, NatsConfig, code_for_status, endpoint_name, subject_for};
+pub use stream::NatsBody;
+pub use wire::{CONNECT_CODE, NatsConfig, STREAM_END, code_for_status, endpoint_name, subject_for};

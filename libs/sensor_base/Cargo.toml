@@ -1,0 +1,18 @@
+[package]
+name = "sensor_base"
+description = "Box 3a (libs): shared base for image sensor services (config, device picking, encoding, metadata, RPC glue)."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Libs depend ONLY on contracts + kernel (+ plain libraries). Never on platform, a service,
+# tracing/opentelemetry (use the injected Logger/Metrics) or anyhow.
+[dependencies]
+contracts.workspace = true
+kernel.workspace = true
+connectrpc.workspace = true
+image.workspace = true
+tokio.workspace = true # only for spawn_blocking: capturing is blocking OS IO
+
+[lints]
+workspace = true

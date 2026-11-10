@@ -36,6 +36,11 @@ impl Host {
     /// Start `host` with `SERVICES=<services>` on HTTP (free port) and NATS (unique
     /// subject prefix, so tests never collide with dev servers or each other).
     pub async fn start(services: &str) -> Host {
+        Self::start_with_env(services, &[]).await
+    }
+
+    /// Like `start`, with extra environment variables for the services (e.g. a driver setting).
+    pub async fn start_with_env(services: &str, env: &[(&str, &str)]) -> Host {
         require_compose_stack();
         build_host_once();
         let addr = format!("127.0.0.1:{}", free_port());
@@ -45,6 +50,7 @@ impl Host {
             .env("ADDR", &addr)
             .env("NATS_URL", nats_url())
             .env("NATS_PREFIX", &nats_prefix)
+            .envs(env.iter().copied())
             .stdout(Stdio::piped())
             .spawn()
             .expect("start host binary");

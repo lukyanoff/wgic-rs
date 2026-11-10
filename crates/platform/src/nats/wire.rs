@@ -5,6 +5,8 @@ use std::collections::HashSet;
 pub const CONNECT_CODE: &str = "Connect-Code";
 pub(crate) const NATS_SERVICE_ERROR: &str = "Nats-Service-Error";
 pub(crate) const NATS_SERVICE_ERROR_CODE: &str = "Nats-Service-Error-Code";
+/// Header of the last message of a streamed reply (server-streaming RPCs).
+pub const STREAM_END: &str = "Nats-Stream-End";
 
 /// Settings for the NATS adapter, usually from the environment.
 #[derive(Debug, Clone)]
@@ -15,18 +17,35 @@ pub struct NatsConfig {
     pub prefix: String,
     /// Micro service version (semver).
     pub version: String,
+    /// Optional instance id, appended to each micro service name (`screen_sensor-screen-1`), so
+    /// processes that run the same module for different devices show up separately in `nats micro ls`.
+    pub instance: Option<String>,
 }
 
 impl NatsConfig {
-    /// Reads `NATS_URL` (required), `NATS_PREFIX` (default `rpc`) and
-    /// `NATS_SERVICE_VERSION` (default: crate version). `None` if `NATS_URL` is not set.
+    /// Reads `NATS_URL` (required), `NATS_PREFIX` (default `rpc`), `NATS_SERVICE_VERSION`
+    /// (default: crate version) and `NATS_INSTANCE` (optional). `None` if `NATS_URL` is not set.
     pub fn from_env() -> Option<Self> {
         let env = |key: &str, default: &str| std::env::var(key).unwrap_or_else(|_| default.into());
         Some(Self {
             url: std::env::var("NATS_URL").ok()?,
             prefix: env("NATS_PREFIX", "rpc"),
             version: env("NATS_SERVICE_VERSION", env!("CARGO_PKG_VERSION")),
+            instance: std::env::var("NATS_INSTANCE").ok().filter(|v| !v.trim().is_empty()),
         })
+    }
+
+    /// Micro service name for `module`: the module name, plus `-<instance>` when set.
+    pub fn service_name(&self, module: &str) -> String {
+        service_name(module, self.instance.as_deref())
+    }
+}
+
+/// `("screen_sensor", Some("screen-1"))` → `screen_sensor-screen-1`; no instance → `screen_sensor`.
+pub fn service_name(module: &str, instance: Option<&str>) -> String {
+    match instance {
+        Some(instance) => sanitize(&format!("{module}-{}", instance.trim())),
+        None => module.to_string(),
     }
 }
 
@@ -51,6 +70,12 @@ pub fn endpoint_name(path: &str, taken: &mut HashSet<String>) -> String {
     let name = if taken.contains(&short) { sanitize(&format!("{service}_{method}")) } else { short };
     taken.insert(name.clone());
     name
+}
+
+/// Connect streaming content types are `application/connect+json` / `application/connect+proto`;
+/// unary ones are `application/json` / `application/proto`.
+pub fn is_streaming(content_type: Option<&str>) -> bool {
+    content_type.is_some_and(|value| value.trim().starts_with("application/connect+"))
 }
 
 /// Connect's HTTP status → code mapping, for errors from non-connect micro services.

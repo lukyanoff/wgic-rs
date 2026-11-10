@@ -7,7 +7,7 @@ use kernel::{Deps, Module};
 
 /// Every service this host knows. Add one line per new service.
 fn all_modules(deps: &Deps) -> Vec<Arc<dyn Module>> {
-    vec![greet::module(deps), screen_sensor::module(deps)]
+    vec![greet::module(deps), screen_sensor::module(deps), camera_sensor::module(deps), llm_caller::module(deps)]
 }
 
 #[tokio::main]

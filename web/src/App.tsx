@@ -389,7 +389,7 @@ export default function App() {
                     >
                       <span>{m.name}</span>
                       {m.methodKind !== 'unary' && (
-                        <span className={`badge ${isBrowserSupported(m, server) ? '' : 'muted'}`}>
+                        <span className={`badge ${isBrowserSupported(m) ? '' : 'muted'}`}>
                           {m.methodKind.replace('_', ' ')}
                         </span>
                       )}
@@ -476,18 +476,17 @@ export default function App() {
                 <button
                   className="primary"
                   onClick={send}
-                  disabled={!server || !isBrowserSupported(method, server)}
+                  disabled={!server || !isBrowserSupported(method)}
                   title="Ctrl+Enter"
                 >
                   Send
                 </button>
               )}
             </div>
-            {!isBrowserSupported(method, server) && (
+            {!isBrowserSupported(method) && (
               <div className="error">
-                {method.methodKind.replace('_', ' ')} methods can't be called{' '}
-                {server?.mode === 'nats' ? 'over NATS (request/reply is unary)' : 'from a browser'}. Use{' '}
-                <code>buf curl</code> over HTTP instead.
+                {method.methodKind.replace('_', ' ')} methods can't be called from a browser. Use <code>buf curl</code>{' '}
+                over HTTP instead.
               </div>
             )}
             {server?.mode === 'nats' && protocol === 'grpc-web' && (

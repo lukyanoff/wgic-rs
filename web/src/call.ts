@@ -74,8 +74,8 @@ function entries(h: Headers): [string, string][] {
   return [...h.entries()]
 }
 
-export function isBrowserSupported(method: DescMethod, server?: ServerEntry): boolean {
-  if (server?.mode === 'nats') return method.methodKind === 'unary'
+/** Unary and server-streaming work over HTTP and NATS; browsers can't stream requests. */
+export function isBrowserSupported(method: DescMethod): boolean {
   return method.methodKind === 'unary' || method.methodKind === 'server_streaming'
 }
 
@@ -140,11 +140,9 @@ async function doCall(
   const registry = o.registry
 
   try {
-    if (!isBrowserSupported(method, o.server)) {
+    if (!isBrowserSupported(method)) {
       throw new ConnectError(
-        o.server.mode === 'nats'
-          ? `${method.methodKind} methods are not supported over NATS (request/reply is unary)`
-          : `${method.methodKind} methods are not supported by browsers (fetch has no request streaming)`,
+        `${method.methodKind} methods are not supported by browsers (fetch has no request streaming)`,
       )
     }
     const transport = makeTransport(o.server, o.protocol, o.registry)
