@@ -104,10 +104,27 @@ Server environment variables:
 - **Limits:** unary only, because request/reply is unary.
 
 **Playground.** Pick the `nats ws` server (`ws://localhost:9222`, mode `nats`).
-It calls through NATS WebSocket with Connect JSON or binary. "Discover" lists
-the running micro instances and their endpoints. Click an endpoint to open
-it. If you used the playground before, click "Reset to servers.json" to get
-the new entry.
+If you used the playground before, click "Reset to servers.json" to get it.
+- The **RPC** tab calls methods through NATS WebSocket with Connect JSON or
+  binary.
+- The **NATS** tab is a browser version of the `nats` CLI. Each view shows the
+  matching command, which you can copy.
+
+| Playground (NATS tab) | CLI |
+|---|---|
+| Services | `nats micro ls`, `nats micro ls greet`, `nats micro info greet [id] [-e regex] [-j]` |
+| Ping | `nats micro ping [greet]` (RTT per instance) |
+| Stats (optional 2 s auto-refresh) | `nats micro stats greet [id] [-j]` |
+| Request | `nats micro req greet GreetService-Greet '{"name":"Jane"}' [-H k:v] [--count N]` |
+| Raw | `nats req <subject> <payload>` / `nats pub <subject> <payload>` |
+| Subscribe | `nats sub 'rpc.>'` (live tail; `$SRV.>` shows discovery, `_INBOX.>` shows replies) |
+| Server | `nats rtt`, plus the server INFO this connection received |
+
+Request with count > 1 also shows a **load-distribution** chart: the
+per-instance change in `num_requests`, taken from stats before and after the
+run. On a Services endpoint, "Open in RPC" jumps to the typed RPC editor, and
+"Request" pre-fills the Request view. A Subscribe keeps running while you use
+the RPC tab, so you can watch your own calls.
 
 **NATS CLI.** The CLI isn't installed on the host, so run it with
 `podman compose run --rm --no-deps nats-box <command>`. `micro` is an alias of
@@ -169,7 +186,8 @@ Buf Studio is a hosted playground from Buf: https://buf.build/studio
 - `web/`: the React playground
   - `src/schema.ts`: loads the descriptors
   - `src/call.ts`: dynamic calls
-  - `src/nats.ts`: calls over NATS WebSocket, and discovery
+  - `src/nats.ts`: RPC calls over NATS WebSocket
+  - `src/natsTools.ts`, `src/NatsConsole.tsx`: the NATS tab (the micro/req/pub/sub equivalents)
   - `src/template.ts`: request templates
   - `vite.config.ts`: the dev proxy
 

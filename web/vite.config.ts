@@ -72,4 +72,6 @@ function connectProxy(): Plugin {
 
 export default defineConfig({
   plugins: [react(), connectProxy()],
+  // nats-core makes the bundle ~520 kB; fine for a dev tool.
+  build: { chunkSizeWarningLimit: 800 },
 })

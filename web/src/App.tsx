@@ -3,7 +3,7 @@ import type { DescMethod, JsonValue } from '@bufbuild/protobuf'
 import './App.css'
 import { callMethod, isBrowserSupported, type CallResult, type Protocol } from './call'
 import { loadSchema, methodComment, methodPath, type Schema } from './schema'
-import { discover, type MicroInfo } from './nats'
+import { NatsConsole } from './NatsConsole'
 import { loadServers, resetServers, saveServers, type ServerEntry } from './servers'
 import { messageTemplate } from './template'
 
@@ -67,8 +67,7 @@ export default function App() {
   const [result, setResult] = useState<CallResult>()
   const [inputError, setInputError] = useState<string>()
   const [history, setHistory] = useState<HistoryEntry[]>(readHistory)
-  const [discovery, setDiscovery] = useState<{ url: string; infos?: MicroInfo[]; error?: string }>()
-  const [discovering, setDiscovering] = useState(false)
+  const [mainTab, setMainTab] = useState<'rpc' | 'nats'>('rpc')
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -151,19 +150,6 @@ export default function App() {
     }
   }
 
-  async function runDiscover() {
-    if (!server) return
-    const url = server.url
-    setDiscovering(true)
-    try {
-      setDiscovery({ url, infos: await discover(url) })
-    } catch (e) {
-      setDiscovery({ url, error: `Discovery failed: ${String(e)}` })
-    } finally {
-      setDiscovering(false)
-    }
-  }
-
   function restore(h: HistoryEntry) {
     const idx = servers.findIndex((s) => s.url === h.server.url && s.mode === h.server.mode)
     if (idx >= 0) setServerIdx(idx)
@@ -178,6 +164,7 @@ export default function App() {
   }
 
   const q = filter.trim().toLowerCase()
+  const showNats = server?.mode === 'nats' && mainTab === 'nats'
 
   return (
     <div className="app">
@@ -290,52 +277,6 @@ export default function App() {
           )}
         </section>
 
-        {server?.mode === 'nats' && !editingServers && (
-          <section className="panel">
-            <div className="panel-title">
-              <span>NATS micro services</span>
-              <button className="link" onClick={runDiscover} disabled={discovering}>
-                {discovering ? 'Discovering…' : 'Discover'}
-              </button>
-            </div>
-            {discovery?.url === server.url && discovery.error && (
-              <div className="error">{discovery.error}</div>
-            )}
-            {discovery?.url === server.url && discovery.infos && (
-              <div className="instances">
-                {discovery.infos.length === 0 && <div className="dim small">No micro services running.</div>}
-                {discovery.infos.map((info) => (
-                  <div key={info.id} className="instance">
-                    <div className="instance-title">
-                      <span className="mono">{info.name}</span>
-                      <span className="dim small">v{info.version}</span>
-                      <span className="dim small mono right" title={info.id}>
-                        {info.id.slice(0, 8)}
-                      </span>
-                    </div>
-                    {info.endpoints.map((ep) => {
-                      const rpc = ep.metadata?.rpc?.replace(/^\//, '')
-                      const known = rpc && methods.has(rpc)
-                      return (
-                        <button
-                          key={ep.name}
-                          className="endpoint"
-                          disabled={!known}
-                          title={known ? ep.subject : `${ep.subject} (not in the loaded schema)`}
-                          onClick={() => rpc && setMethodKey(rpc)}
-                        >
-                          <span className="mono">{ep.name}</span>
-                          <span className="dim small mono">{ep.subject}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
         <section className="panel grow">
           <div className="panel-title">
             <span>Methods</span>
@@ -360,7 +301,10 @@ export default function App() {
                     <button
                       key={m.name}
                       className={`method ${methodKey === keyOf(m) ? 'active' : ''}`}
-                      onClick={() => setMethodKey(keyOf(m))}
+                      onClick={() => {
+                        setMethodKey(keyOf(m))
+                        setMainTab('rpc')
+                      }}
                       title={methodPath(m)}
                     >
                       <span>{m.name}</span>
@@ -379,8 +323,45 @@ export default function App() {
       </aside>
 
       <main className="main">
-        {!method && <div className="empty">{schema ? 'Select a method' : 'Loading schema…'}</div>}
-        {method && (
+        {server?.mode === 'nats' && (
+          <nav className="maintabs" role="tablist">
+            <button
+              role="tab"
+              aria-selected={showNats ? 'false' : 'true'}
+              className={showNats ? '' : 'active'}
+              onClick={() => setMainTab('rpc')}
+            >
+              RPC
+            </button>
+            <button
+              role="tab"
+              aria-selected={showNats ? 'true' : 'false'}
+              className={showNats ? 'active' : ''}
+              onClick={() => setMainTab('nats')}
+            >
+              NATS
+            </button>
+          </nav>
+        )}
+        {/* Stay mounted while on the RPC tab so console state (and an active Subscribe) survives. */}
+        {server?.mode === 'nats' && (
+          <div hidden={!showNats}>
+          <NatsConsole
+            key={server.url}
+            url={server.url}
+            hasMethod={(rpc) => methods.has(rpc.replace(/^\//, ''))}
+            onOpenMethod={(rpc) => {
+              const key = rpc.replace(/^\//, '')
+              if (!methods.has(key)) return false
+              setMethodKey(key)
+              setMainTab('rpc')
+              return true
+            }}
+          />
+          </div>
+        )}
+        {!showNats && !method && <div className="empty">{schema ? 'Select a method' : 'Loading schema…'}</div>}
+        {!showNats && method && (
           <>
             <div className="method-header">
               <h1>
