@@ -24,8 +24,8 @@ pub use log_backend::TracingLogs;
 pub use logs::JsonLogFormat;
 pub use metrics_backend::{OtelMetrics, SECONDS_BUCKETS};
 pub use propagation::{
-    PROPAGATION_HEADERS, continue_trace, extract_http, extract_nats, inject_http, inject_nats,
-    is_propagation_header, split_procedure,
+    PROPAGATION_HEADERS, continue_trace, extract_http, extract_nats, inject_http, inject_nats, is_propagation_header,
+    split_procedure,
 };
 
 use std::time::Instant;

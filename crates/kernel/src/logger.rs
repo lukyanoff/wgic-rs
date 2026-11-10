@@ -34,11 +34,7 @@ pub struct Logger {
 
 impl Logger {
     pub fn new(category: &str, backend: Arc<dyn LogBackend>) -> Self {
-        Self {
-            category: category.to_string(),
-            scope: Vec::new(),
-            backend,
-        }
+        Self { category: category.to_string(), scope: Vec::new(), backend }
     }
 
     /// A logger that adds `fields` to every entry it writes.

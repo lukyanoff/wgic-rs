@@ -7,10 +7,7 @@ use tracing::Instrument;
 async fn call(name: String) -> anyhow::Result<String> {
     let deps = platform::deps_from_env().await?;
     let client = GreetServiceClient::new(deps.channel(), deps.client_config());
-    let request = GreetRequest {
-        name,
-        ..Default::default()
-    };
+    let request = GreetRequest { name, ..Default::default() };
     let response = client.greet(request).await?;
     Ok(response.view().greeting.to_string())
 }

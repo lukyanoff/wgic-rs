@@ -21,9 +21,7 @@ pub trait Adapter: Send + Sync {
 
 /// All modules in one router.
 fn router_for(modules: &[Arc<dyn Module>]) -> Router {
-    modules
-        .iter()
-        .fold(Router::new(), |router, module| module.register(router))
+    modules.iter().fold(Router::new(), |router, module| module.register(router))
 }
 
 /// Connect, gRPC and gRPC-web on one HTTP port, for all modules together.

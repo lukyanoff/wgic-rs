@@ -91,10 +91,7 @@ where
         }
         let span_context = Span::current().context().span().span_context().clone();
         if span_context.is_valid() {
-            out.insert(
-                "trace_id".into(),
-                span_context.trace_id().to_string().into(),
-            );
+            out.insert("trace_id".into(), span_context.trace_id().to_string().into());
             out.insert("span_id".into(), span_context.span_id().to_string().into());
         }
         let line = serde_json::to_string(&Value::Object(out)).map_err(|_| fmt::Error)?;

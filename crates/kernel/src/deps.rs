@@ -24,12 +24,7 @@ pub struct Deps {
 impl Deps {
     /// Logs and metrics are dropped until [`Deps::with_logs`] / [`Deps::with_metrics`] set them.
     pub fn new(channel: Channel, client_config: ClientConfig) -> Self {
-        Self {
-            channel,
-            client_config,
-            logs: Arc::new(NoopLogs),
-            metrics: Arc::new(NoopMetrics),
-        }
+        Self { channel, client_config, logs: Arc::new(NoopLogs), metrics: Arc::new(NoopMetrics) }
     }
 
     /// Send logs to `backend` (platform's `TracingLogs`, or `testing::MemoryLogs`).
@@ -62,9 +57,7 @@ impl Deps {
     /// let client = GreetServiceClient::new(deps.channel(), deps.client_config());
     /// ```
     pub fn in_process(modules: &[Arc<dyn Module>]) -> Self {
-        let router = modules
-            .iter()
-            .fold(Router::new(), |router, module| module.register(router));
+        let router = modules.iter().fold(Router::new(), |router, module| module.register(router));
         let config = ClientConfig::new("http://in-process".parse().expect("valid uri"));
         Self::new(Channel::in_process(router), config)
     }

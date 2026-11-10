@@ -9,9 +9,7 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use opentelemetry::{KeyValue, global};
 
 /// Histogram buckets for durations in seconds (1 ms … 10 s).
-pub const SECONDS_BUCKETS: [f64; 13] = [
-    0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
-];
+pub const SECONDS_BUCKETS: [f64; 13] = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
 
 #[derive(Clone)]
 enum Instrument {
@@ -40,30 +38,20 @@ impl OtelMetrics {
     }
 
     pub fn with_meter(meter: Meter) -> Self {
-        Self {
-            meter,
-            registry: Mutex::new(Registry::default()),
-        }
+        Self { meter, registry: Mutex::new(Registry::default()) }
     }
 
     /// The instrument for `name`, created on first use. `None` if `name` was first
     /// used with a different kind (that mistake is logged once).
     fn instrument(&self, kind: MetricKind, name: &str) -> Option<Instrument> {
         let mut registry = self.registry.lock().expect("metrics registry lock");
-        let instrument = registry
-            .instruments
-            .entry(name.to_string())
-            .or_insert_with(|| create(&self.meter, kind, name))
-            .clone();
+        let instrument =
+            registry.instruments.entry(name.to_string()).or_insert_with(|| create(&self.meter, kind, name)).clone();
         if kind_of(&instrument) == kind {
             return Some(instrument);
         }
         if registry.conflicts.insert(name.to_string()) {
-            tracing::warn!(
-                metric = name,
-                ?kind,
-                "metric name already used with another kind; ignored"
-            );
+            tracing::warn!(metric = name, ?kind, "metric name already used with another kind; ignored");
         }
         None
     }
@@ -95,10 +83,7 @@ fn create(meter: &Meter, kind: MetricKind, name: &str) -> Instrument {
         MetricKind::Counter => Instrument::Counter(meter.u64_counter(name).build()),
         MetricKind::Gauge => Instrument::Gauge(meter.f64_gauge(name).build()),
         MetricKind::Histogram if name.ends_with("_seconds") => {
-            let histogram = meter
-                .f64_histogram(name)
-                .with_unit("s")
-                .with_boundaries(SECONDS_BUCKETS.to_vec());
+            let histogram = meter.f64_histogram(name).with_unit("s").with_boundaries(SECONDS_BUCKETS.to_vec());
             Instrument::Histogram(histogram.build())
         }
         MetricKind::Histogram => Instrument::Histogram(meter.f64_histogram(name).build()),

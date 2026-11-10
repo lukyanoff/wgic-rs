@@ -14,9 +14,7 @@ pub fn cors() -> CorsLayer {
     let allow_origin = if origins.trim() == "*" {
         AllowOrigin::any()
     } else {
-        let list = origins
-            .split(',')
-            .filter_map(|o| HeaderValue::from_str(o.trim()).ok());
+        let list = origins.split(',').filter_map(|o| HeaderValue::from_str(o.trim()).ok());
         AllowOrigin::list(list)
     };
     let h = HeaderName::from_static;

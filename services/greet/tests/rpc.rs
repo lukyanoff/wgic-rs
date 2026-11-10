@@ -16,23 +16,14 @@ struct Setup {
 fn setup() -> Setup {
     let logs = MemoryLogs::new();
     let metrics = MemoryMetrics::new();
-    let service_deps = Deps::in_process(&[])
-        .with_logs(logs.clone())
-        .with_metrics(metrics.clone());
+    let service_deps = Deps::in_process(&[]).with_logs(logs.clone()).with_metrics(metrics.clone());
     let caller = Deps::in_process(&[greet::module(&service_deps)]);
     let client = GreetServiceClient::new(caller.channel(), caller.client_config());
-    Setup {
-        client,
-        logs,
-        metrics,
-    }
+    Setup { client, logs, metrics }
 }
 
 fn request(name: &str) -> GreetRequest {
-    GreetRequest {
-        name: name.into(),
-        ..Default::default()
-    }
+    GreetRequest { name: name.into(), ..Default::default() }
 }
 
 #[tokio::test]
@@ -65,21 +56,13 @@ async fn rejections_are_logged_and_counted_by_reason() {
     s.client.greet(request("")).await.err().unwrap();
 
     let entry = s.logs.find("greeting rejected").unwrap();
-    assert_eq!(
-        entry.field("reason"),
-        Some(&FieldValue::Str("empty_name".into()))
-    );
+    assert_eq!(entry.field("reason"), Some(&FieldValue::Str("empty_name".into())));
     assert_eq!(s.metrics.sum("greet.rejected"), 1.0);
     assert_eq!(s.metrics.sum("greet.greetings"), 0.0);
 }
 
 #[tokio::test]
 async fn too_long_name_is_invalid_argument() {
-    let error = setup()
-        .client
-        .greet(request(&"a".repeat(101)))
-        .await
-        .err()
-        .unwrap();
+    let error = setup().client.greet(request(&"a".repeat(101))).await.err().unwrap();
     assert_eq!(error.code, ErrorCode::InvalidArgument);
 }

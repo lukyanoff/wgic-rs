@@ -14,9 +14,7 @@ pub struct TestMeter {
 impl TestMeter {
     pub fn new() -> Self {
         let exporter = InMemoryMetricExporter::default();
-        let provider = SdkMeterProvider::builder()
-            .with_periodic_exporter(exporter.clone())
-            .build();
+        let provider = SdkMeterProvider::builder().with_periodic_exporter(exporter.clone()).build();
         Self { provider, exporter }
     }
 
@@ -41,9 +39,7 @@ impl TestMeter {
 
 fn total(data: &AggregatedMetrics) -> f64 {
     match data {
-        AggregatedMetrics::U64(MetricData::Sum(sum)) => {
-            sum.data_points().map(|p| p.value() as f64).sum()
-        }
+        AggregatedMetrics::U64(MetricData::Sum(sum)) => sum.data_points().map(|p| p.value() as f64).sum(),
         AggregatedMetrics::F64(MetricData::Histogram(histogram)) => {
             histogram.data_points().map(|p| p.count() as f64).sum()
         }

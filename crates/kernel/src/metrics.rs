@@ -32,10 +32,7 @@ pub struct Metrics {
 
 impl Metrics {
     pub fn new(meter: &str, backend: Arc<dyn MetricsBackend>) -> Self {
-        Self {
-            meter: meter.to_string(),
-            backend,
-        }
+        Self { meter: meter.to_string(), backend }
     }
 
     /// Add `value` to a counter.
@@ -53,13 +50,7 @@ impl Metrics {
         self.send(MetricKind::Gauge, name, value, tags);
     }
 
-    fn send(
-        &self,
-        kind: MetricKind,
-        name: &str,
-        value: f64,
-        tags: impl IntoIterator<Item = Field>,
-    ) {
+    fn send(&self, kind: MetricKind, name: &str, value: f64, tags: impl IntoIterator<Item = Field>) {
         let full_name = format!("{}.{name}", self.meter);
         let tags: Vec<Field> = tags.into_iter().collect();
         self.backend.record(kind, &full_name, value, &tags);

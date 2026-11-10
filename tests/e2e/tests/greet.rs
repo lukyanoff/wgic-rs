@@ -10,19 +10,13 @@ fn client(deps: &Deps) -> GreetServiceClient<Channel> {
 }
 
 fn request(name: &str) -> GreetRequest {
-    GreetRequest {
-        name: name.into(),
-        ..Default::default()
-    }
+    GreetRequest { name: name.into(), ..Default::default() }
 }
 
 #[tokio::test]
 async fn greets_over_http() {
     let host = Host::start("greet").await;
-    let response = client(&host.http_deps())
-        .greet(request("Jane"))
-        .await
-        .unwrap();
+    let response = client(&host.http_deps()).greet(request("Jane")).await.unwrap();
     assert_eq!(response.view().greeting, "Hello, Jane!");
 }
 

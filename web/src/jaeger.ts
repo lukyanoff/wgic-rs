@@ -39,13 +39,7 @@ function normalize(t: JTrace): UiSpan[] {
     const status = String(attrs['otel.status_code'] ?? '').toLowerCase()
     const error = status === 'error' || attrs.error === true
     const kind = String(attrs['span.kind'] ?? 'internal')
-    for (const k of [
-      'span.kind',
-      'otel.status_code',
-      'otel.status_description',
-      'error',
-      'internal.span.format',
-    ])
+    for (const k of ['span.kind', 'otel.status_code', 'otel.status_description', 'error', 'internal.span.format'])
       delete attrs[k]
     const events: UiEvent[] = (s.logs ?? []).map((l) => {
       const f = tagMap(l.fields)
@@ -78,8 +72,7 @@ function normalize(t: JTrace): UiSpan[] {
 export async function fetchTrace(traceId: string, signal?: AbortSignal): Promise<UiSpan[]> {
   const res = await fetch(`${BASE}/api/traces/${traceId}`, { signal })
   if (res.status === 404) return []
-  if (!res.ok)
-    throw new Error(`Jaeger: HTTP ${res.status} ${await res.text().catch(() => '')}`.trim())
+  if (!res.ok) throw new Error(`Jaeger: HTTP ${res.status} ${await res.text().catch(() => '')}`.trim())
   const body = (await res.json()) as { data?: JTrace[] }
   return (body.data ?? []).flatMap(normalize)
 }

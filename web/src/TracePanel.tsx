@@ -16,16 +16,7 @@ import {
 
 const NO_SPANS: UiSpan[] = []
 
-const SERVICE_COLORS = [
-  '#6366f1',
-  '#0ea5e9',
-  '#f59e0b',
-  '#10b981',
-  '#ec4899',
-  '#8b5cf6',
-  '#14b8a6',
-  '#f97316',
-]
+const SERVICE_COLORS = ['#6366f1', '#0ea5e9', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316']
 
 function colorOf(service: string, services: string[]): string {
   return SERVICE_COLORS[Math.max(0, services.indexOf(service)) % SERVICE_COLORS.length]
@@ -110,10 +101,7 @@ export function TracePanel({ traceId }: { traceId: string }) {
     return () => ctrl.abort()
   }, [traceId, key])
 
-  const remoteSpans = useMemo(
-    () => (remote?.traceId === traceId ? remote.spans : NO_SPANS),
-    [remote, traceId],
-  )
+  const remoteSpans = useMemo(() => (remote?.traceId === traceId ? remote.spans : NO_SPANS), [remote, traceId])
   const status = state?.key === key ? state : { status: 'loading' as const, error: undefined }
 
   const spans = useMemo(() => {
@@ -178,14 +166,12 @@ export function TracePanel({ traceId }: { traceId: string }) {
       </div>
       {status?.status === 'error' && (
         <div className="error small">
-          {status.error}. Is Jaeger running (<code>podman compose up -d</code>) and is the
-          playground under <code>npm run dev</code>?
+          {status.error}. Is Jaeger running (<code>podman compose up -d</code>) and is the playground under{' '}
+          <code>npm run dev</code>?
         </div>
       )}
       {exportStatus.state === 'error' && (
-        <div className="error small">
-          Browser spans are not reaching the collector: {exportStatus.error}
-        </div>
+        <div className="error small">Browser spans are not reaching the collector: {exportStatus.error}</div>
       )}
 
       <div className="trace-legend">
@@ -196,10 +182,7 @@ export function TracePanel({ traceId }: { traceId: string }) {
         ))}
         <span className="spacer" />
         <div className="segmented" role="radiogroup">
-          <button
-            className={tab === 'waterfall' ? 'active' : ''}
-            onClick={() => setTab('waterfall')}
-          >
+          <button className={tab === 'waterfall' ? 'active' : ''} onClick={() => setTab('waterfall')}>
             Spans
           </button>
           <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
@@ -321,18 +304,14 @@ function SpanDetail({ span, t0 }: { span: UiSpan; t0: number }) {
         </span>
         <span>
           status{' '}
-          <b
-            className={span.status.code === 'error' ? 'bad' : span.status.code === 'ok' ? 'ok' : ''}
-          >
+          <b className={span.status.code === 'error' ? 'bad' : span.status.code === 'ok' ? 'ok' : ''}>
             {span.status.code}
             {span.status.message ? `: ${span.status.message}` : ''}
           </b>
         </span>
         <span className="mono dim">span {span.spanId}</span>
         {span.parentId && <span className="mono dim">parent {span.parentId}</span>}
-        <span className="dim">
-          {span.source === 'browser' ? 'from browser (not yet in Jaeger)' : 'from Jaeger'}
-        </span>
+        <span className="dim">{span.source === 'browser' ? 'from browser (not yet in Jaeger)' : 'from Jaeger'}</span>
       </div>
       {attrs.length > 0 && (
         <table className="attrs">

@@ -56,11 +56,7 @@ fn client_span(request: &Request<ClientBody>) -> Span {
     )
 }
 
-fn record_outcome<B, E: std::fmt::Display>(
-    span: &Span,
-    started: Instant,
-    result: &Result<Response<B>, E>,
-) {
+fn record_outcome<B, E: std::fmt::Display>(span: &Span, started: Instant, result: &Result<Response<B>, E>) {
     let duration_ms = elapsed_ms(started);
     let _entered = span.enter();
     match result {

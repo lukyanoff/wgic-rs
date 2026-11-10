@@ -6,10 +6,7 @@ use opentelemetry_sdk::propagation::TraceContextPropagator;
 
 #[test]
 fn splits_procedure_paths() {
-    assert_eq!(
-        split_procedure("/greet.v1.GreetService/Greet"),
-        ("greet.v1.GreetService", "Greet")
-    );
+    assert_eq!(split_procedure("/greet.v1.GreetService/Greet"), ("greet.v1.GreetService", "Greet"));
     assert_eq!(split_procedure("Greet"), ("", "Greet"));
 }
 

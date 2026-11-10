@@ -10,15 +10,7 @@ import {
 import { ConnectError, type Interceptor, type Transport } from '@connectrpc/connect'
 import { createConnectTransport, createGrpcWebTransport } from '@connectrpc/connect-web'
 import { natsFetch } from './nats'
-import {
-  endSpan,
-  extractContext,
-  flushSpans,
-  isPropagationHeader,
-  SpanKind,
-  startSpan,
-  traceHeaders,
-} from './otel'
+import { endSpan, extractContext, flushSpans, isPropagationHeader, SpanKind, startSpan, traceHeaders } from './otel'
 import { DEFAULT_NATS_PREFIX, type ServerEntry } from './servers'
 
 export type Protocol = 'connect-json' | 'connect-binary' | 'grpc-web'
@@ -49,8 +41,7 @@ export interface CallResult {
 function makeTransport(server: ServerEntry, protocol: Protocol, registry: Registry): Transport {
   const jsonOptions = { registry }
   if (server.mode === 'nats') {
-    if (protocol === 'grpc-web')
-      throw new ConnectError('gRPC-web is not available over NATS; use Connect')
+    if (protocol === 'grpc-web') throw new ConnectError('gRPC-web is not available over NATS; use Connect')
     return createConnectTransport({
       // Unused by natsFetch except for the RPC path, which becomes the subject.
       baseUrl: 'http://nats',
@@ -97,8 +88,7 @@ export function isBrowserSupported(method: DescMethod, server?: ServerEntry): bo
 export async function callMethod(o: CallOptions): Promise<CallResult> {
   const { method, registry } = o
   const input = fromJson(method.input, o.request, { registry })
-  const toOut = (m: Parameters<typeof toJson>[1]) =>
-    toJson(method.output, m, { registry, alwaysEmitImplicit: true })
+  const toOut = (m: Parameters<typeof toJson>[1]) => toJson(method.output, m, { registry, alwaysEmitImplicit: true })
 
   const userHeaders = Object.entries(o.headers)
   const { span, ctx, traceId } = startSpan(
@@ -159,13 +149,7 @@ async function doCall(
     }
     const transport = makeTransport(o.server, o.protocol, o.registry)
     if (method.methodKind === 'unary') {
-      const res = await transport.unary(
-        method as DescMethodUnary,
-        o.signal,
-        o.timeoutMs,
-        o.headers,
-        input,
-      )
+      const res = await transport.unary(method as DescMethodUnary, o.signal, o.timeoutMs, o.headers, input)
       onMessage(toOut(res.message))
       return {
         ok: true,

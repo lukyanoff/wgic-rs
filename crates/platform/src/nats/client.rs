@@ -13,9 +13,7 @@ use tracing::field::Empty;
 use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::wire::{
-    CONNECT_CODE, NATS_SERVICE_ERROR, NATS_SERVICE_ERROR_CODE, code_for_status, subject_for,
-};
+use super::wire::{CONNECT_CODE, NATS_SERVICE_ERROR, NATS_SERVICE_ERROR_CODE, code_for_status, subject_for};
 use crate::telemetry::{continue_trace, extract_http, inject_nats, is_propagation_header};
 
 /// `ClientTransport` that sends Connect unary calls over NATS request/reply:
@@ -31,10 +29,7 @@ pub struct NatsTransport {
 
 impl NatsTransport {
     pub fn new(nc: async_nats::Client, prefix: impl Into<String>) -> Self {
-        Self {
-            nc,
-            prefix: prefix.into(),
-        }
+        Self { nc, prefix: prefix.into() }
     }
 }
 
@@ -42,10 +37,7 @@ impl ClientTransport for NatsTransport {
     type ResponseBody = Full<Bytes>;
     type Error = ConnectError;
 
-    fn send(
-        &self,
-        request: Request<ClientBody>,
-    ) -> BoxFuture<'static, Result<Response<Full<Bytes>>, ConnectError>> {
+    fn send(&self, request: Request<ClientBody>) -> BoxFuture<'static, Result<Response<Full<Bytes>>, ConnectError>> {
         let nc = self.nc.clone();
         let (parts, body) = request.into_parts();
         let subject = subject_for(&self.prefix, parts.uri.path());
@@ -59,10 +51,7 @@ impl ClientTransport for NatsTransport {
                 .payload(payload)
                 .headers(nats_headers(&parts.headers))
                 .timeout(timeout_from(&parts.headers));
-            let reply = nc
-                .send_request(subject.clone(), request)
-                .await
-                .map_err(|e| request_failed(&subject, e))?;
+            let reply = nc.send_request(subject.clone(), request).await.map_err(|e| request_failed(&subject, e))?;
             record_service_error(&reply);
             Ok(reply_to_response(reply))
         };
@@ -108,40 +97,24 @@ fn timeout_from(headers: &http::HeaderMap) -> Option<Duration> {
 fn request_failed(subject: &str, e: async_nats::RequestError) -> ConnectError {
     use async_nats::RequestErrorKind::*;
     let error = match e.kind() {
-        NoResponders => ConnectError::new(
-            ErrorCode::Unavailable,
-            format!("no NATS responders for {subject}"),
-        ),
-        TimedOut => ConnectError::new(
-            ErrorCode::DeadlineExceeded,
-            format!("NATS request to {subject} timed out"),
-        ),
+        NoResponders => ConnectError::new(ErrorCode::Unavailable, format!("no NATS responders for {subject}")),
+        TimedOut => ConnectError::new(ErrorCode::DeadlineExceeded, format!("NATS request to {subject} timed out")),
         _ => ConnectError::new(ErrorCode::Unavailable, format!("NATS {subject}: {e}")),
     };
     let span = Span::current();
     span.record("otel.status_code", "ERROR");
-    span.record(
-        "otel.status_message",
-        error.message.as_deref().unwrap_or(""),
-    );
+    span.record("otel.status_message", error.message.as_deref().unwrap_or(""));
     tracing::warn!(%subject, code = error.code.as_str(), "nats request failed");
     error
 }
 
 fn record_service_error(reply: &async_nats::Message) {
-    let Some(code) = reply
-        .headers
-        .as_ref()
-        .and_then(|h| h.get(NATS_SERVICE_ERROR_CODE))
-    else {
+    let Some(code) = reply.headers.as_ref().and_then(|h| h.get(NATS_SERVICE_ERROR_CODE)) else {
         return;
     };
     let span = Span::current();
     span.record("otel.status_code", "ERROR");
-    span.record(
-        "messaging.nats.service_error_code",
-        code.as_str().parse::<u64>().unwrap_or(0),
-    );
+    span.record("messaging.nats.service_error_code", code.as_str().parse::<u64>().unwrap_or(0));
 }
 
 /// NATS reply → HTTP response the connect client understands.
@@ -174,12 +147,8 @@ fn error_response(headers: &HeaderMap, status: &str) -> Response<Full<Bytes>> {
     let message = get(NATS_SERVICE_ERROR).unwrap_or_default();
     let body = serde_json::json!({ "code": code, "message": message }).to_string();
     let mut response = Response::new(Full::new(Bytes::from(body)));
-    *response.status_mut() =
-        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    response.headers_mut().insert(
-        http::header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
+    *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    response.headers_mut().insert(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
     response
 }
 

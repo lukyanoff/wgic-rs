@@ -9,18 +9,8 @@ fn counters_histograms_and_gauges_reach_otel() {
     let test = TestMeter::new();
     let backend = OtelMetrics::with_meter(test.meter());
 
-    backend.record(
-        MetricKind::Counter,
-        "greet.greetings",
-        2.0,
-        &[kv("transport", "nats")],
-    );
-    backend.record(
-        MetricKind::Counter,
-        "greet.greetings",
-        1.0,
-        &[kv("transport", "http")],
-    );
+    backend.record(MetricKind::Counter, "greet.greetings", 2.0, &[kv("transport", "nats")]);
+    backend.record(MetricKind::Counter, "greet.greetings", 1.0, &[kv("transport", "http")]);
     backend.record(MetricKind::Histogram, "greet.work_seconds", 0.2, &[]);
     backend.record(MetricKind::Gauge, "greet.queue_depth", 5.0, &[]);
 

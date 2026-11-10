@@ -1,1 +1,5 @@
 edition = "2024"
+# Wide screens: use the full width before wrapping.
+max_width = 120
+# Apply max_width to calls, chains, struct literals, etc. too (default wraps them at ~60% width).
+use_small_heuristics = "Max"

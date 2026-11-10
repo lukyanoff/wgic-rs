@@ -25,10 +25,7 @@ pub trait RequestContextExt {
 
 impl RequestContextExt for RequestContext {
     fn transport(&self) -> Transport {
-        self.extensions()
-            .get::<Transport>()
-            .cloned()
-            .unwrap_or(Transport::Http)
+        self.extensions().get::<Transport>().cloned().unwrap_or(Transport::Http)
     }
 }
 

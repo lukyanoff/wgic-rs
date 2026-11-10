@@ -17,6 +17,7 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
 - **Pure core, thin edges.** Rules go in `domain.rs` as plain functions (no async, no IO, no proto
   types). Handlers only translate proto ⇄ domain.
 - **≤ 4 parameters.** More? Pass a named struct.
+- **Line width 120** (`rustfmt.toml`, `web/.oxfmtrc.json`); the formatter decides wrapping — don't fight it.
 
 ## Rust: prefer the boring version
 

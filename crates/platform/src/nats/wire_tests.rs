@@ -28,25 +28,16 @@ fn status_codes_map_to_connect_codes() {
 #[test]
 fn parses_connect_error_body() {
     let body = br#"{"code":"not_found","message":"no such user"}"#;
-    assert_eq!(
-        parse_connect_error(body),
-        ("not_found".into(), "no such user".into())
-    );
+    assert_eq!(parse_connect_error(body), ("not_found".into(), "no such user".into()));
 }
 
 #[test]
 fn empty_message_falls_back_to_code() {
     let body = br#"{"code":"internal"}"#;
-    assert_eq!(
-        parse_connect_error(body),
-        ("internal".into(), "internal".into())
-    );
+    assert_eq!(parse_connect_error(body), ("internal".into(), "internal".into()));
 }
 
 #[test]
 fn non_json_error_body_is_kept_as_message() {
-    assert_eq!(
-        parse_connect_error(b"boom"),
-        ("unknown".into(), "boom".into())
-    );
+    assert_eq!(parse_connect_error(b"boom"), ("unknown".into(), "boom".into()));
 }

@@ -49,30 +49,20 @@ impl Host {
             .spawn()
             .expect("start host binary");
         wait_until_ready(&mut child);
-        Host {
-            child,
-            addr,
-            nats_prefix,
-        }
+        Host { child, addr, nats_prefix }
     }
 
     /// Deps whose channel calls this host over HTTP (Connect protocol).
     pub fn http_deps(&self) -> Deps {
         let base = format!("http://{}", self.addr).parse().expect("valid uri");
-        Deps::new(
-            Channel::new(HttpClient::plaintext()),
-            ClientConfig::new(base),
-        )
+        Deps::new(Channel::new(HttpClient::plaintext()), ClientConfig::new(base))
     }
 
     /// Deps whose channel calls this host over NATS request/reply.
     pub async fn nats_deps(&self) -> Deps {
         let nc = async_nats::connect(nats_url()).await.expect("connect NATS");
         let channel = Channel::new(NatsTransport::new(nc, self.nats_prefix.clone()));
-        Deps::new(
-            channel,
-            ClientConfig::new("http://nats".parse().expect("valid uri")),
-        )
+        Deps::new(channel, ClientConfig::new("http://nats".parse().expect("valid uri")))
     }
 }
 
@@ -97,19 +87,15 @@ fn build_host_once() {
     static BUILD: Once = Once::new();
     BUILD.call_once(|| {
         let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-        let status = Command::new(cargo)
-            .args(["build", "--quiet", "--package", "host"])
-            .status()
-            .expect("run cargo build");
+        let status =
+            Command::new(cargo).args(["build", "--quiet", "--package", "host"]).status().expect("run cargo build");
         assert!(status.success(), "cargo build -p host failed");
     });
 }
 
 fn host_binary() -> PathBuf {
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = std::env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| workspace.join("target"));
+    let target = std::env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| workspace.join("target"));
     target.join("debug").join("host")
 }
 

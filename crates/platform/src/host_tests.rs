@@ -24,14 +24,8 @@ fn names(modules: &[Arc<dyn Module>]) -> Vec<&'static str> {
 
 #[test]
 fn empty_or_all_selects_everything() {
-    assert_eq!(
-        names(&select_modules(modules(), "").unwrap()),
-        ["greet", "billing"]
-    );
-    assert_eq!(
-        names(&select_modules(modules(), "all").unwrap()),
-        ["greet", "billing"]
-    );
+    assert_eq!(names(&select_modules(modules(), "").unwrap()), ["greet", "billing"]);
+    assert_eq!(names(&select_modules(modules(), "all").unwrap()), ["greet", "billing"]);
 }
 
 #[test]
@@ -43,8 +37,5 @@ fn selects_named_modules() {
 #[test]
 fn unknown_module_lists_available_ones() {
     let error = select_modules(modules(), "greet,nope").err().unwrap();
-    assert_eq!(
-        error.to_string(),
-        "unknown service 'nope'; available: greet, billing"
-    );
+    assert_eq!(error.to_string(), "unknown service 'nope'; available: greet, billing");
 }

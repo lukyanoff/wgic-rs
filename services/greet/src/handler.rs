@@ -1,8 +1,6 @@
 //! Proto ⇄ domain. Keep this thin: decode, call the domain, log/measure, encode.
 
-use connectrpc::{
-    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
-};
+use connectrpc::{ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult};
 use contracts::proto::greet::v1::{GreetRequest, GreetResponse, GreetService};
 use kernel::{Deps, Logger, Metrics, RequestContextExt, kv};
 
@@ -16,10 +14,7 @@ pub struct GreetHandler {
 
 impl GreetHandler {
     pub fn new(deps: &Deps) -> Self {
-        Self {
-            log: deps.logger("greet"),
-            metrics: deps.metrics("greet"),
-        }
+        Self { log: deps.logger("greet"), metrics: deps.metrics("greet") }
     }
 }
 
@@ -34,24 +29,15 @@ impl GreetService for GreetHandler {
         let greeting = match domain::greeting(request.name) {
             Ok(greeting) => greeting,
             Err(error) => {
-                self.log
-                    .warn("greeting rejected", [kv("reason", reason(&error))]);
-                self.metrics
-                    .count("rejected", 1, [kv("reason", reason(&error))]);
+                self.log.warn("greeting rejected", [kv("reason", reason(&error))]);
+                self.metrics.count("rejected", 1, [kv("reason", reason(&error))]);
                 return Err(to_connect_error(error));
             }
         };
         // Logs carry trace_id/span_id automatically (we run inside the rpc.server span).
-        self.log.info(
-            "greeting sent",
-            [kv("name", request.name), kv("transport", transport)],
-        );
-        self.metrics
-            .count("greetings", 1, [kv("transport", transport)]);
-        Response::ok(GreetResponse {
-            greeting,
-            ..Default::default()
-        })
+        self.log.info("greeting sent", [kv("name", request.name), kv("transport", transport)]);
+        self.metrics.count("greetings", 1, [kv("transport", transport)]);
+        Response::ok(GreetResponse { greeting, ..Default::default() })
     }
 }
 

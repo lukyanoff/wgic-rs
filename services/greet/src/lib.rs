@@ -17,9 +17,7 @@ use handler::GreetHandler;
 /// Create the module. The handler takes its logger and metrics from `deps`; a service that
 /// calls others also keeps `deps.channel()` to build their generated clients.
 pub fn module(deps: &Deps) -> Arc<dyn Module> {
-    Arc::new(GreetModule {
-        handler: Arc::new(GreetHandler::new(deps)),
-    })
+    Arc::new(GreetModule { handler: Arc::new(GreetHandler::new(deps)) })
 }
 
 struct GreetModule {

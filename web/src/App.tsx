@@ -206,11 +206,7 @@ export default function App() {
             </button>
           </div>
           {!editingServers && (
-            <select
-              value={serverIdx}
-              onChange={(e) => setServerIdx(Number(e.target.value))}
-              aria-label="Server"
-            >
+            <select value={serverIdx} onChange={(e) => setServerIdx(Number(e.target.value))} aria-label="Server">
               {servers.map((s, i) => (
                 <option key={i} value={i}>
                   {s.name}: {s.url} ({s.mode})
@@ -226,27 +222,21 @@ export default function App() {
                     value={s.name}
                     placeholder="name"
                     onChange={(e) =>
-                      updateServers(
-                        servers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
-                      )
+                      updateServers(servers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
                     }
                   />
                   <input
                     value={s.url}
                     placeholder={s.mode === 'nats' ? 'ws://host:port' : 'http://host:port'}
                     onChange={(e) =>
-                      updateServers(
-                        servers.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)),
-                      )
+                      updateServers(servers.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
                     }
                   />
                   <select
                     value={s.mode}
                     onChange={(e) =>
                       updateServers(
-                        servers.map((x, j) =>
-                          j === i ? { ...x, mode: e.target.value as ServerEntry['mode'] } : x,
-                        ),
+                        servers.map((x, j) => (j === i ? { ...x, mode: e.target.value as ServerEntry['mode'] } : x)),
                       )
                     }
                   >
@@ -272,9 +262,7 @@ export default function App() {
                         placeholder="rpc"
                         onChange={(e) =>
                           updateServers(
-                            servers.map((x, j) =>
-                              j === i ? { ...x, prefix: e.target.value || undefined } : x,
-                            ),
+                            servers.map((x, j) => (j === i ? { ...x, prefix: e.target.value || undefined } : x)),
                           )
                         }
                       />
@@ -337,9 +325,7 @@ export default function App() {
               Jaeger ↗
             </a>
           </div>
-          {exportStatus.state === 'error' && (
-            <div className="error small">{exportStatus.error}</div>
-          )}
+          {exportStatus.state === 'error' && <div className="error small">{exportStatus.error}</div>}
           {editingTelemetry && (
             <div className="server-editor">
               <label className="check">
@@ -385,8 +371,7 @@ export default function App() {
           <nav className="tree">
             {schema?.services.map((s) => {
               const ms = s.methods.filter(
-                (m) =>
-                  !q || s.typeName.toLowerCase().includes(q) || m.name.toLowerCase().includes(q),
+                (m) => !q || s.typeName.toLowerCase().includes(q) || m.name.toLowerCase().includes(q),
               )
               if (ms.length === 0) return null
               return (
@@ -455,9 +440,7 @@ export default function App() {
             />
           </div>
         )}
-        {!showNats && !method && (
-          <div className="empty">{schema ? 'Select a method' : 'Loading schema…'}</div>
-        )}
+        {!showNats && !method && <div className="empty">{schema ? 'Select a method' : 'Loading schema…'}</div>}
         {!showNats && method && (
           <>
             <div className="method-header">
@@ -484,12 +467,7 @@ export default function App() {
               </label>
               <label>
                 Timeout ms
-                <input
-                  type="number"
-                  min={0}
-                  value={timeoutMs}
-                  onChange={(e) => setTimeoutMs(e.target.value)}
-                />
+                <input type="number" min={0} value={timeoutMs} onChange={(e) => setTimeoutMs(e.target.value)} />
               </label>
               <div className="spacer" />
               {running ? (
@@ -508,24 +486,19 @@ export default function App() {
             {!isBrowserSupported(method, server) && (
               <div className="error">
                 {method.methodKind.replace('_', ' ')} methods can't be called{' '}
-                {server?.mode === 'nats' ? 'over NATS (request/reply is unary)' : 'from a browser'}.
-                Use <code>buf curl</code> over HTTP instead.
+                {server?.mode === 'nats' ? 'over NATS (request/reply is unary)' : 'from a browser'}. Use{' '}
+                <code>buf curl</code> over HTTP instead.
               </div>
             )}
             {server?.mode === 'nats' && protocol === 'grpc-web' && (
-              <div className="error">
-                gRPC-web is not available over NATS; pick a Connect protocol.
-              </div>
+              <div className="error">gRPC-web is not available over NATS; pick a Connect protocol.</div>
             )}
 
             <div className="panes">
               <section className="pane">
                 <div className="pane-title">
                   <span>Request</span>
-                  <button
-                    className="link"
-                    onClick={() => setRequestText(pretty(messageTemplate(method.input)))}
-                  >
+                  <button className="link" onClick={() => setRequestText(pretty(messageTemplate(method.input)))}>
                     Reset to template
                   </button>
                 </div>
@@ -579,8 +552,7 @@ export default function App() {
                     <pre className="code">
                       {result.header.map(([k, v]) => `${k}: ${v}`).join('\n')}
                       {result.trailer.length > 0 &&
-                        '\n\n# trailers\n' +
-                          result.trailer.map(([k, v]) => `${k}: ${v}`).join('\n')}
+                        '\n\n# trailers\n' + result.trailer.map(([k, v]) => `${k}: ${v}`).join('\n')}
                     </pre>
                   </details>
                 )}

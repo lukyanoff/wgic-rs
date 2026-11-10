@@ -33,24 +33,12 @@ impl NatsConfig {
 /// `greet.v1.GreetService/Greet` → `rpc.greet.v1.GreetService.Greet`
 pub fn subject_for(prefix: &str, path: &str) -> String {
     let path = path.trim_start_matches('/').replace('/', ".");
-    if prefix.is_empty() {
-        path
-    } else {
-        format!("{prefix}.{path}")
-    }
+    if prefix.is_empty() { path } else { format!("{prefix}.{path}") }
 }
 
 /// Keep `[A-Za-z0-9_-]`, replace anything else with `_` (NATS micro naming rule).
 fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
 }
 
 /// Short endpoint name `GreetService-Greet`, or the fully-qualified
@@ -60,11 +48,7 @@ pub fn endpoint_name(path: &str, taken: &mut HashSet<String>) -> String {
     let (service, method) = path.rsplit_once('/').unwrap_or(("", path));
     let short_service = service.rsplit('.').next().unwrap_or(service);
     let short = sanitize(&format!("{short_service}-{method}"));
-    let name = if taken.contains(&short) {
-        sanitize(&format!("{service}_{method}"))
-    } else {
-        short
-    };
+    let name = if taken.contains(&short) { sanitize(&format!("{service}_{method}")) } else { short };
     taken.insert(name.clone());
     name
 }
@@ -90,10 +74,9 @@ pub fn code_for_status(status: u16) -> &'static str {
 /// The message falls back to the code, so it is never empty.
 pub fn parse_connect_error(body: &[u8]) -> (String, String) {
     let (code, message) = match serde_json::from_slice::<serde_json::Value>(body) {
-        Ok(v) => (
-            v["code"].as_str().unwrap_or("unknown").to_string(),
-            v["message"].as_str().unwrap_or_default().to_string(),
-        ),
+        Ok(v) => {
+            (v["code"].as_str().unwrap_or("unknown").to_string(), v["message"].as_str().unwrap_or_default().to_string())
+        }
         Err(_) => ("unknown".into(), String::from_utf8_lossy(body).into()),
     };
     if message.is_empty() {

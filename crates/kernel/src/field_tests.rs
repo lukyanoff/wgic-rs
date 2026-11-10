@@ -5,10 +5,7 @@ use super::*;
 #[test]
 fn strings_numbers_and_bools_convert() {
     assert_eq!(kv("name", "Jane").value, FieldValue::Str("Jane".into()));
-    assert_eq!(
-        kv("name", String::from("Jane")).value,
-        FieldValue::Str("Jane".into())
-    );
+    assert_eq!(kv("name", String::from("Jane")).value, FieldValue::Str("Jane".into()));
     assert_eq!(kv("attempt", 3).value, FieldValue::I64(3));
     assert_eq!(kv("ratio", 0.5).value, FieldValue::F64(0.5));
     assert_eq!(kv("cached", true).value, FieldValue::Bool(true));

@@ -20,10 +20,7 @@ pub struct Field {
 
 /// `kv("name", "Jane")`, `kv("attempt", 3)`, `kv("cached", true)`.
 pub fn kv(key: &'static str, value: impl Into<FieldValue>) -> Field {
-    Field {
-        key,
-        value: value.into(),
-    }
+    Field { key, value: value.into() }
 }
 
 impl fmt::Display for FieldValue {

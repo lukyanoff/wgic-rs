@@ -24,14 +24,7 @@ fn each_method_records_its_kind() {
     m.set("queue_depth", 7.0, []);
 
     let kinds: Vec<MetricKind> = memory.points().iter().map(|p| p.kind).collect();
-    assert_eq!(
-        kinds,
-        [
-            MetricKind::Counter,
-            MetricKind::Histogram,
-            MetricKind::Gauge
-        ]
-    );
+    assert_eq!(kinds, [MetricKind::Counter, MetricKind::Histogram, MetricKind::Gauge]);
     assert_eq!(memory.last("greet.queue_depth"), Some(7.0));
 }
 

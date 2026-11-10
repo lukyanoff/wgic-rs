@@ -56,12 +56,8 @@ impl MemoryLogs {
 
 impl LogBackend for MemoryLogs {
     fn log(&self, level: Level, category: &str, message: &str, fields: &[Field]) {
-        let entry = LogEntry {
-            level,
-            category: category.to_string(),
-            message: message.to_string(),
-            fields: fields.to_vec(),
-        };
+        let entry =
+            LogEntry { level, category: category.to_string(), message: message.to_string(), fields: fields.to_vec() };
         self.entries.lock().expect("logs lock").push(entry);
     }
 }
@@ -92,31 +88,18 @@ impl MemoryMetrics {
 
     /// Sum of all values recorded under `name` (full name, e.g. `greet.greetings`).
     pub fn sum(&self, name: &str) -> f64 {
-        self.points()
-            .iter()
-            .filter(|p| p.name == name)
-            .map(|p| p.value)
-            .sum()
+        self.points().iter().filter(|p| p.name == name).map(|p| p.value).sum()
     }
 
     /// The last value recorded under `name`.
     pub fn last(&self, name: &str) -> Option<f64> {
-        self.points()
-            .iter()
-            .rev()
-            .find(|p| p.name == name)
-            .map(|p| p.value)
+        self.points().iter().rev().find(|p| p.name == name).map(|p| p.value)
     }
 }
 
 impl MetricsBackend for MemoryMetrics {
     fn record(&self, kind: MetricKind, name: &str, value: f64, tags: &[Field]) {
-        let point = MetricPoint {
-            kind,
-            name: name.to_string(),
-            value,
-            tags: tags.to_vec(),
-        };
+        let point = MetricPoint { kind, name: name.to_string(), value, tags: tags.to_vec() };
         self.points.lock().expect("metrics lock").push(point);
     }
 }

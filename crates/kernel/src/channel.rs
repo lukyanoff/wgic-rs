@@ -39,9 +39,7 @@ impl Channel {
                 Ok(response.map(|body| body.map_err(to_connect_error).boxed_unsync()))
             })
         };
-        Self {
-            send: Arc::new(send),
-        }
+        Self { send: Arc::new(send) }
     }
 
     /// Call the services in `router` directly in this process: the full connect

@@ -12,9 +12,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 pub const PROPAGATION_HEADERS: [&str; 3] = ["traceparent", "tracestate", "baggage"];
 
 pub fn is_propagation_header(name: &str) -> bool {
-    PROPAGATION_HEADERS
-        .iter()
-        .any(|h| h.eq_ignore_ascii_case(name))
+    PROPAGATION_HEADERS.iter().any(|h| h.eq_ignore_ascii_case(name))
 }
 
 /// Parent context from HTTP headers.
@@ -39,10 +37,7 @@ impl Extractor for NatsHeaderExtractor<'_> {
             .map(|v| v.as_str())
     }
     fn keys(&self) -> Vec<&str> {
-        self.0
-            .iter()
-            .map(|(k, _)| AsRef::<str>::as_ref(k))
-            .collect()
+        self.0.iter().map(|(k, _)| AsRef::<str>::as_ref(k)).collect()
     }
 }
 

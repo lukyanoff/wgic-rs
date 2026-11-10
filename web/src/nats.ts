@@ -8,14 +8,7 @@ import {
   type MsgHdrs,
   type NatsConnection,
 } from '@nats-io/nats-core'
-import {
-  endSpan,
-  extractContext,
-  isPropagationHeader,
-  SpanKind,
-  startSpan,
-  traceHeaders,
-} from './otel'
+import { endSpan, extractContext, isPropagationHeader, SpanKind, startSpan, traceHeaders } from './otel'
 
 // Calls Connect unary RPCs over NATS (WebSocket), using the same wire format as
 // the Rust adapter in src/nats.rs:
@@ -119,16 +112,8 @@ export function natsFetch(url: string, prefix: string): typeof fetch {
 
     let failure: string | undefined
     try {
-      const res = await natsRequestResponse(
-        url,
-        subject,
-        body,
-        hdrs,
-        timeout,
-        init?.signal ?? undefined,
-      )
-      if (res.status !== 200)
-        failure = `${res.status} ${res.headers.get('x-nats-error') ?? ''}`.trim()
+      const res = await natsRequestResponse(url, subject, body, hdrs, timeout, init?.signal ?? undefined)
+      if (res.status !== 200) failure = `${res.status} ${res.headers.get('x-nats-error') ?? ''}`.trim()
       span.setAttribute('messaging.nats.reply_status', res.status)
       return res
     } catch (e) {

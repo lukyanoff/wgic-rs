@@ -53,11 +53,7 @@ pub fn init(default_service: &str) -> TelemetryGuard {
     global::set_tracer_provider(tracer_provider.clone());
     global::set_meter_provider(meter_provider.clone());
     install_subscriber(&tracer_provider, &logger_provider);
-    TelemetryGuard {
-        tracer_provider,
-        logger_provider,
-        meter_provider,
-    }
+    TelemetryGuard { tracer_provider, logger_provider, meter_provider }
 }
 
 fn env_set(key: &str) -> bool {
@@ -83,10 +79,7 @@ fn tracer_provider(resource: Resource) -> SdkTracerProvider {
     if !env_set("OTEL_EXPORTER_OTLP_ENDPOINT") && !env_set("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") {
         return builder.build();
     }
-    match opentelemetry_otlp::SpanExporter::builder()
-        .with_http()
-        .build()
-    {
+    match opentelemetry_otlp::SpanExporter::builder().with_http().build() {
         Ok(exporter) => builder.with_batch_exporter(exporter).build(),
         Err(e) => {
             eprintln!("otel: cannot build span exporter: {e}");
@@ -100,10 +93,7 @@ fn logger_provider(resource: Resource) -> SdkLoggerProvider {
     if !env_set("OTEL_EXPORTER_OTLP_ENDPOINT") && !env_set("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") {
         return builder.build();
     }
-    match opentelemetry_otlp::LogExporter::builder()
-        .with_http()
-        .build()
-    {
+    match opentelemetry_otlp::LogExporter::builder().with_http().build() {
         Ok(exporter) => builder.with_batch_exporter(exporter).build(),
         Err(e) => {
             eprintln!("otel: cannot build log exporter: {e}");
@@ -117,19 +107,14 @@ fn meter_provider(resource: Resource) -> SdkMeterProvider {
     if !env_set("OTEL_EXPORTER_OTLP_ENDPOINT") && !env_set("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") {
         return builder.build();
     }
-    let exporter = match opentelemetry_otlp::MetricExporter::builder()
-        .with_http()
-        .build()
-    {
+    let exporter = match opentelemetry_otlp::MetricExporter::builder().with_http().build() {
         Ok(exporter) => exporter,
         Err(e) => {
             eprintln!("otel: cannot build metric exporter: {e}");
             return builder.build();
         }
     };
-    let reader = PeriodicReader::builder(exporter)
-        .with_interval(metric_export_interval())
-        .build();
+    let reader = PeriodicReader::builder(exporter).with_interval(metric_export_interval()).build();
     builder.with_reader(reader).build()
 }
 
@@ -146,15 +131,12 @@ fn install_subscriber(tracer_provider: &SdkTracerProvider, logger_provider: &Sdk
     // Never feed the exporters' own diagnostics back into the exporters.
     let not_otel_internals = filter_fn(|meta| {
         let target = meta.target();
-        !["opentelemetry", "hyper", "reqwest", "h2"]
-            .iter()
-            .any(|prefix| target.starts_with(prefix))
+        !["opentelemetry", "hyper", "reqwest", "h2"].iter().any(|prefix| target.starts_with(prefix))
     });
     let spans = tracing_opentelemetry::layer()
         .with_tracer(tracer_provider.tracer(env!("CARGO_PKG_NAME")))
         .with_error_events_to_status(true);
-    let otel_logs =
-        OpenTelemetryTracingBridge::new(logger_provider).with_filter(not_otel_internals);
+    let otel_logs = OpenTelemetryTracingBridge::new(logger_provider).with_filter(not_otel_internals);
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     // `try_init`: a second call (e.g. two tests in one process) keeps the first subscriber.

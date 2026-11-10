@@ -4,8 +4,7 @@
 use std::time::Instant;
 
 use connectrpc::interceptor::{
-    Interceptor, Next, NextStream, PayloadStream, StreamRequest, StreamResponse, UnaryRequest,
-    UnaryResponse,
+    Interceptor, Next, NextStream, PayloadStream, StreamRequest, StreamResponse, UnaryRequest, UnaryResponse,
 };
 use connectrpc::{ConnectError, Protocol, RequestContext};
 use futures::StreamExt;
@@ -30,16 +29,11 @@ pub trait RequestContextOtel {
 
 impl RequestContextOtel for RequestContext {
     fn otel(&self) -> Context {
-        self.extensions()
-            .get::<Context>()
-            .cloned()
-            .unwrap_or_else(Context::current)
+        self.extensions().get::<Context>().cloned().unwrap_or_else(Context::current)
     }
     fn trace_id(&self) -> Option<String> {
         let span_context = self.otel().span().span_context().clone();
-        span_context
-            .is_valid()
-            .then(|| span_context.trace_id().to_string())
+        span_context.is_valid().then(|| span_context.trace_id().to_string())
     }
 }
 
@@ -73,11 +67,7 @@ impl Default for OtelInterceptor {
 
 #[connectrpc::async_trait]
 impl Interceptor for OtelInterceptor {
-    async fn intercept_unary(
-        &self,
-        mut req: UnaryRequest,
-        next: Next<'_>,
-    ) -> Result<UnaryResponse, ConnectError> {
+    async fn intercept_unary(&self, mut req: UnaryRequest, next: Next<'_>) -> Result<UnaryResponse, ConnectError> {
         let call = Call::start(&mut req.ctx, self.duration.clone());
         let result = next.run(req).instrument(call.span.clone()).await;
         call.finish(result.as_ref().err(), None);
@@ -138,12 +128,7 @@ impl Call {
             KeyValue::new("rpc.method", method.to_string()),
             KeyValue::new("rpc.transport", transport.name()),
         ];
-        Call {
-            span,
-            started: Instant::now(),
-            attributes,
-            duration,
-        }
+        Call { span, started: Instant::now(), attributes, duration }
     }
 
     /// Close the call: log + span status + duration metric.
@@ -151,25 +136,15 @@ impl Call {
         let code = err.map_or("ok", |e| e.code.as_str());
         let mut attributes = self.attributes.clone();
         attributes.push(KeyValue::new("rpc.response.status_code", code));
-        self.duration
-            .record(self.started.elapsed().as_secs_f64(), &attributes);
+        self.duration.record(self.started.elapsed().as_secs_f64(), &attributes);
         finish_span(&self.span, self.started, err, messages);
     }
 }
 
-fn server_span(
-    ctx: &mut RequestContext,
-    procedure: &str,
-    (system, wire): (&str, &str),
-    transport: &Transport,
-) -> Span {
+fn server_span(ctx: &mut RequestContext, procedure: &str, (system, wire): (&str, &str), transport: &Transport) -> Span {
     let (service, method) = split_procedure(procedure);
-    let content_type = ctx
-        .headers()
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+    let content_type =
+        ctx.headers().get(http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     let subject = match transport {
         Transport::Http => None,
         Transport::Nats { subject } => Some(subject.as_str()),
@@ -219,12 +194,7 @@ struct StreamState {
 
 /// Poll the outbound stream inside the span and finish the call when the stream ends.
 fn finish_on_end(stream: PayloadStream, call: Call) -> PayloadStream {
-    let state = StreamState {
-        inner: stream,
-        call,
-        count: 0,
-        error: None,
-    };
+    let state = StreamState { inner: stream, call, count: 0, error: None };
     Box::pin(futures::stream::unfold(Some(state), |state| async move {
         let mut state = state?;
         let next = state.inner.next().instrument(state.call.span.clone()).await;

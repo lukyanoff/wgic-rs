@@ -44,11 +44,7 @@ pub async fn serve_nats(
     for path in methods {
         let rpc_path = format!("/{}", path.trim_start_matches('/'));
         let endpoint = add_endpoint(&micro, cfg, &rpc_path, &mut taken).await?;
-        loops.push(tokio::spawn(serve_endpoint(
-            endpoint,
-            service.clone(),
-            rpc_path,
-        )));
+        loops.push(tokio::spawn(serve_endpoint(endpoint, service.clone(), rpc_path)));
     }
     tracing::info!(service = %name, version = %cfg.version, url = %cfg.url, "nats: micro service started");
     for task in loops {
@@ -120,10 +116,7 @@ fn receive_span(msg: &async_nats::Message) -> Span {
 
 fn error_reply(status: u16, code: &str, message: String, mut headers: HeaderMap) -> Reply {
     headers.insert(CONNECT_CODE, code);
-    let error = async_nats::service::error::Error {
-        status: message,
-        code: status as usize,
-    };
+    let error = async_nats::service::error::Error { status: message, code: status as usize };
     (Err(error), headers)
 }
 
@@ -145,15 +138,10 @@ async fn handle(service: ConnectRpcService, rpc_path: &str, msg: &async_nats::Me
 }
 
 /// NATS message → HTTP request the connect router understands.
-fn to_http_request(
-    rpc_path: &str,
-    msg: &async_nats::Message,
-) -> Result<Request<Full<Bytes>>, http::Error> {
+fn to_http_request(rpc_path: &str, msg: &async_nats::Message) -> Result<Request<Full<Bytes>>, http::Error> {
     let mut request = Request::post(rpc_path)
         .header("connect-protocol-version", "1")
-        .extension(Transport::Nats {
-            subject: msg.subject.to_string(),
-        })
+        .extension(Transport::Nats { subject: msg.subject.to_string() })
         .body(Full::new(msg.payload.clone()))?;
     let headers = request.headers_mut();
     for (name, values) in msg.headers.iter().flat_map(|h| h.iter()) {
@@ -163,18 +151,12 @@ fn to_http_request(
         if is_propagation_header(name.as_str()) {
             continue; // replaced by the nats.receive span's context below
         }
-        for value in values
-            .iter()
-            .filter_map(|v| HeaderValue::from_str(v.as_str()).ok())
-        {
+        for value in values.iter().filter_map(|v| HeaderValue::from_str(v.as_str()).ok()) {
             headers.append(name.clone(), value);
         }
     }
     if !headers.contains_key(http::header::CONTENT_TYPE) {
-        headers.insert(
-            http::header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        );
+        headers.insert(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
     }
     inject_http(&Span::current().context(), headers);
     Ok(request)

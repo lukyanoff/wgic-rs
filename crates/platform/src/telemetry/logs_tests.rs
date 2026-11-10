@@ -11,10 +11,7 @@ fn object(value: Value) -> Map<String, Value> {
 fn service_fields_are_flattened() {
     let mut out = object(json!({"message": "hi", "log.fields": r#"{"name":"Jane","n":2}"#}));
     flatten_service_fields(&mut out);
-    assert_eq!(
-        Value::Object(out),
-        json!({"message": "hi", "name": "Jane", "n": 2})
-    );
+    assert_eq!(Value::Object(out), json!({"message": "hi", "name": "Jane", "n": 2}));
 }
 
 #[test]
