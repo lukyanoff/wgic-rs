@@ -4,7 +4,7 @@
 //! Entry points for `apps/*`:
 //! - [`init_telemetry`] — first line of every `main`.
 //! - [`run`] — serve modules on every adapter enabled by the environment.
-//! - [`select_modules`] — pick modules by `SERVICES=greet,billing`.
+//! - [`build_modules`] — build the services named in `SERVICES=greet,billing`.
 //! - [`deps_from_env`] — a [`kernel::Deps`] whose channel calls other services over HTTP or NATS.
 
 mod adapter;
@@ -14,7 +14,7 @@ pub mod nats;
 pub mod telemetry;
 
 pub use adapter::{Adapter, HttpAdapter, NatsAdapter};
-pub use host::{Modules, deps_from_env, run, select_modules};
+pub use host::{Modules, build_modules, deps_from_env, run};
 pub use http_server::cors;
 pub use telemetry::{TelemetryGuard, init as init_telemetry};
 

@@ -21,7 +21,7 @@ npm run gen   # buf generate (Rust) + descriptors for the playground + cargo fmt
 ## Run the server and call it
 
 ```sh
-cargo run -p host       # terminal 1: all services (SERVICES=greet runs only greet)
+SERVICES=greet cargo run -p host   # terminal 1 (SERVICES is required: a comma list of greet,sensor,llm_caller,visioner)
 curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' http://127.0.0.1:8080/greet.v1.GreetService/Greet
                         # terminal 2: {"greeting":"Hello, Jane!"}
 ```
@@ -77,11 +77,10 @@ cd web && npm run dev        # http://localhost:5173
   fields. Press Ctrl+Enter to send. Headers go one per line as `key: value`.
 - **History:** the last 20 calls. Click one to restore it.
 
-## Screen and camera sensors
+## Sensors (screen and camera)
 
-`screen_sensor` and `camera_sensor` take a picture and return it with metadata (`sensor.v1.ImageMetadata`).
-Both are built on `libs/sensor_base`, so they share config, encoding, logs/metrics and error codes.
-Each has `Capture` and `ListDevices`.
+`sensor` takes a picture of a screen or from a camera and returns it with metadata (`sensor.v1.ImageMetadata`).
+It has `Capture` and `ListDevices`; `SENSOR_KIND` picks the screen (xcap) or camera (nokhwa) driver.
 
 **One instance per device.** Each sensor process captures one device, chosen by config. To run all four
 (2 screens, 2 cameras), each in its own process with its own NATS prefix (NATS only, no HTTP ports; screens send
@@ -90,38 +89,40 @@ JPEG, `SCREEN_FORMAT=png scripts/run-sensors.sh` for PNG):
 ```sh
 podman compose up -d
 scripts/run-sensors.sh       # screen-1, screen-2, cam-1, cam-2 (Ctrl+C stops all)
-podman compose run --rm nats-box nats req cam-2.camera_sensor.v1.CameraSensorService.Capture '{}'
+podman compose run --rm nats-box nats req cam-2.sensor.v1.SensorService.Capture '{}'
 ```
 
 In the playground, pick `screen-1 nats` … `cam-2 nats` (click "Reset to servers.json" once to get them).
-Call `ListDevices` to see which index/name each device has, then edit the `*_DEVICE` lines in `scripts/run-sensors.sh`.
+Call `ListDevices` to see which index each device has, then edit the `*_DEVICE` lines in `scripts/run-sensors.sh`.
 
-| Variable (screen / camera) | Values |
+| Variable | Values |
 |---|---|
-| `SCREEN_SENSOR_ID` / `CAMERA_SENSOR_ID` | instance id in metadata, logs, metrics (default `screen` / `camera`) |
-| `SCREEN_SENSOR_DEVICE` / `CAMERA_SENSOR_DEVICE` | `default`, `0`, `1`, …, `name:<NAME>` |
-| `SCREEN_SENSOR_FORMAT` / `CAMERA_SENSOR_FORMAT` | `png` (default), `jpeg`, `jpeg:<1..100>` |
-| `SCREEN_SENSOR_DRIVER` | `auto` (= xcap), `xcap`, `linux-x11` |
-| `CAMERA_SENSOR_DRIVER` | `auto`, `nokhwa-v4l`, `nokhwa-avfoundation`, `nokhwa-msmf` |
-| `CAMERA_SENSOR_RESOLUTION` | `max` (default) or `<W>x<H>` |
-| `CAMERA_SENSOR_WARMUP_FRAMES` | frames dropped before the picture (default 5) |
+| `SENSOR_KIND` | `screen` (default) or `camera` |
+| `SENSOR_ID` | instance id in the metadata (default: the kind) |
+| `SENSOR_DEVICE` | `default` or an index `0`, `1`, … (see `ListDevices`) |
+| `SENSOR_FORMAT` | `png` (default) or `jpeg` (quality 85) |
+
+Cameras use the highest resolution and drop 5 warm-up frames. Errors: no such device → `not_found`, no display or
+camera → `unavailable`, camera busy → `resource_exhausted`.
 
 ## LLM caller
 
 `llm_caller` sends a chat (`[{role, content}]`, plus an optional JSON Schema) to an LLM.
 Its one RPC, `Call`, is **server-streaming**: it sends `progress` messages (`started` /
 `thinking` / `writing`, with the text received so far), then one `result` (the validated
-JSON, the raw text and metadata such as tokens, cost and duration).
+JSON, the raw text and metadata such as tokens and duration).
 
-One service, four injected drivers. Each process is one instance with a fixed driver,
-model, effort and temperature:
+One service, four drivers. Each process is one instance with a fixed driver, model and effort:
 
-| Driver | How | Effort | Temperature |
-|---|---|---|---|
-| `claude-cli` | `claude -p --input-format stream-json --output-format stream-json`, no tools | `low`…`max` | no |
-| `agy-cli` | `agy -p --output-format stream-json --sandbox --mode plan` | `low`…`max` | no |
-| `openai` | `POST /v1/responses`, SSE (`OPENAI_API_KEY`) | `minimal`…`high` | yes |
-| `openrouter` | `POST /api/v1/chat/completions`, SSE (`OPENROUTER_API_KEY`) | `minimal`…`high` | yes |
+| Driver | How | Effort |
+|---|---|---|
+| `claude-cli` | `claude -p --input-format stream-json --output-format stream-json`, no tools | `low`…`max` |
+| `agy-cli` | `agy -p --output-format stream-json --sandbox --mode plan` | `low`…`max` |
+| `openai` | `POST https://api.openai.com/v1/chat/completions`, SSE (`OPENAI_API_KEY`) | `minimal`…`high` |
+| `openrouter` | `POST https://openrouter.ai/api/v1/chat/completions`, SSE (`OPENROUTER_API_KEY`) | `minimal`…`high` |
+
+Effort is passed through as-is (`reasoning_effort` for the HTTP drivers); the provider or CLI rejects a bad value.
+A call stops after 10 minutes (`deadline_exceeded`); the client's own deadline applies too.
 
 ```sh
 podman compose up -d
@@ -131,23 +132,21 @@ scripts/run-llm-callers.sh    # llm-claude, llm-agy, llm-openai, llm-openrouter 
 In the playground, pick `llm-claude nats` … `llm-openrouter nats` and call `Call`.
 The progress messages appear one by one.
 
-**Images.** A user message may carry `images: [{data, mime_type}]` (png, jpeg, webp, gif; ≤ 5 MB each):
+**Images.** A user message may carry `images: [{data, mime_type}]` (the provider decides which types and sizes it takes):
 claude gets them as base64 blocks on stdin, OpenAI/OpenRouter as data URLs, and agy (text-only stdin) as files
 `image-1.png`… in the call's own temp folder, which its prompt names.
 
 | Variable | Values |
 |---|---|
 | `LLM_CALLER_ID` | instance id in metadata, logs and metrics (default `llm`) |
-| `LLM_CALLER_DRIVER` | `claude-cli`, `agy-cli`, `openai`, `openrouter`. Unset: every call answers `failed_precondition` |
+| `LLM_CALLER_DRIVER` | required: `claude-cli`, `agy-cli`, `openai`, `openrouter` |
 | `LLM_CALLER_MODEL` | required, e.g. `claude-sonnet-5-5`, `gemini-3.8-flash-medium` (`agy models` lists them) |
 | `LLM_CALLER_EFFORT` | see the table above (default `medium`) |
-| `LLM_CALLER_TEMPERATURE` | `0..2`, HTTP drivers only. Set on a CLI driver, it stops the host at startup |
-| `LLM_CALLER_TIMEOUT_SECS` | whole-call limit (default 300) |
 | `LLM_CALLER_BASE_URL` / `LLM_CALLER_CLI_PATH` | replace the provider URL or the CLI program (tests, proxies) |
 
 ## Visioner (orchestrator)
 
-`visioner` takes a screenshot from one screen sensor instance and asks K llm_caller instances, **in parallel**,
+`visioner` takes a screenshot from one sensor instance and asks several llm_caller instances, **in parallel**,
 what they see. `Check` is server-streaming: progress from `screen` and from each model (its partial text, passed
 on), then one result with every model's answer.
 
@@ -155,8 +154,8 @@ on), then one result with every model's answer.
   without a screenshot or when every model failed.
 - Every call has a deadline (`connect-timeout-ms`). Servers enforce it on streams too, so a timed-out model call is
   stopped at the callee as well (llm_caller kills its CLI).
-- It calls the other instances **by id over NATS**, through the client factories in `libs/clients`
-  (`ScreenSensorClients::new(&deps).get("screen-1", timeout)`).
+- It calls the other instances **by id over NATS** with their generated clients
+  (`SensorServiceClient::new(deps.channel_to("screen-1"), config)`).
 
 ```sh
 scripts/run-all.sh    # starts screen-1, the llm callers and vision-1 (= screen-1 + llm-claude,llm-agy)
@@ -169,8 +168,8 @@ one trace holds the `Check` span with `screen-1`'s `Capture` and each model's `C
 
 | Variable | Values |
 |---|---|
-| `VISIONER_SCREEN` | screen sensor instance id, e.g. `screen-1`. Unset: every call answers `failed_precondition` |
-| `VISIONER_LLMS` | llm_caller instance ids, comma-separated, e.g. `llm-claude,llm-agy` |
+| `VISIONER_SCREEN` | required: the sensor instance id, e.g. `screen-1` |
+| `VISIONER_LLMS` | required: llm_caller instance ids, comma-separated, e.g. `llm-claude,llm-agy` |
 | `VISIONER_ID` | instance id in logs (default `vision`) |
 | `VISIONER_SCREEN_TIMEOUT_SECS` / `VISIONER_LLM_TIMEOUT_SECS` | per-call deadlines (default 15 / 120) |
 
@@ -203,9 +202,9 @@ Server environment variables:
 | `NATS_URL` | (unset, so NATS is off) | NATS server URL |
 | `NATS_PREFIX` | `rpc` | Subject prefix |
 | `NATS_SERVICE_VERSION` | crate version | Micro service version |
-| `NATS_INSTANCE` | (unset) | Appended to each micro service name (`screen_sensor-screen-1`), so one module run for different devices shows as separate services. Unset: replicas share a name and load-balance |
+| `NATS_INSTANCE` | (unset) | Appended to each micro service name (`sensor-screen-1`), so one module run for different devices shows as separate services. Unset: replicas share a name and load-balance |
 | `HTTP_DISABLED` | (unset) | `1` turns the HTTP listener off |
-| `SERVICES` | `all` | Comma-separated modules to run, e.g. `greet,billing` |
+| `SERVICES` | (required) | Comma-separated services to build and run, e.g. `greet,sensor` |
 | `UPSTREAM_ADDR` | `ADDR` | Where services call other services over HTTP when `NATS_URL` is unset |
 
 Each module is its own NATS micro service, named after the module (`greet`, or `greet-<NATS_INSTANCE>`). All
@@ -379,12 +378,13 @@ Services follow the Cognitive Boxes layout (see `CLAUDE.md`). Copy `services/gre
 
 1. Add `proto/foo/v1/foo.proto`, run `npm run gen`, and add a `pub mod foo` block in
    `crates/contracts/src/lib.rs`.
-2. Create `services/foo/` with the same files as `services/greet/`: `domain.rs` (rules as a trait + struct, e.g. `Greeter` / `HelloGreeter`),
-   `domain_tests.rs` (unit tests), `handler.rs` (implements the generated `FooService`), `lib.rs`
-   (`pub fn module(&Deps) -> Arc<dyn Module>`), `tests/rpc.rs` (integration), `CLAUDE.md`.
+2. Create `services/foo/` with the same files as `services/greet/`: `handler.rs` (implements the generated
+   `FooService`; all the logic, read as a story), `handler_tests.rs` (unit tests), `lib.rs`
+   (`pub fn module(&Deps) -> Arc<dyn Module>`), `tests/rpc.rs` (integration), `CLAUDE.md`; plus `config.rs` when it
+   has settings.
 3. Register it: `foo = { path = "services/foo" }` in the root `[workspace.dependencies]`,
-   `foo.workspace = true` in `apps/host/Cargo.toml`, and `foo::module(deps)` in
-   `all_modules()` in `apps/host/src/main.rs`.
+   `foo.workspace = true` in `apps/host/Cargo.toml`, and `("foo", foo::module)` in
+   `ALL_SERVICES` in `apps/host/src/main.rs`.
 4. Add `tests/e2e/tests/foo.rs` (HTTP + NATS).
 5. Run `scripts/verify.sh`. `scripts/check-boxes.sh` fails if any of the steps above is missing.
 
@@ -428,10 +428,10 @@ Cognitive Boxes: every box has a `CLAUDE.md` describing what it owns and what it
 - `proto/greet/v1/greet.proto`: the service definition
 - `buf.yaml`, `buf.gen.yaml`: Buf module, lint settings and code generation plugins
 - `crates/contracts`: generated code (`contracts::proto::...`)
-- `crates/kernel`: what services see: `Module`, `Deps`, `Channel`, `Transport`
+- `crates/kernel`: what services see: `Module`, `Deps`, `Channel`, `Transport`, `module()`, `stream_from()`
 - `crates/platform`: infrastructure: `run()` (HTTP + NATS), CORS, `nats/` (micro adapter and
   `NatsTransport`), `telemetry/` (OTEL + JSON logs, `OtelInterceptor`, `TracingTransport`)
-- `services/greet`: the greet service (domain, handler, tests)
+- `services/greet`, `sensor`, `llm_caller`, `visioner`: the services (config, handler, drivers, tests)
 - `apps/host`: the server binary (`SERVICES=...`)
 - `tests/e2e`: end-to-end tests against the real `host` binary (needs `podman compose up -d`)
 - `scripts/verify.sh`: definition of done (fmt, clippy, boxes, buf lint, all tests, web)
@@ -473,9 +473,9 @@ This starts NATS (:4222), the OTel collector (:4318), Jaeger, Prometheus and Gra
 
 Terminal 2: all services, over HTTP and NATS, with traces, logs and metrics exported
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_BSP_SCHEDULE_DELAY=200 \
-NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 \
+SERVICES=greet NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 \
 cargo run -p host
-- Only some services: add SERVICES=greet.
+- More services: SERVICES=greet,sensor (each needs its settings; missing ones stop the host with a clear message).
 - Extra instances (they share the load over NATS): run the same command in another terminal with HTTP_DISABLED=1 instead of ADDR=....
 
 Terminal 3: web playground

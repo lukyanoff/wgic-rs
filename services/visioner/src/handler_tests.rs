@@ -1,33 +1,37 @@
-//! Unit tests for the pure mapping in `handler.rs`.
-
-use crate::domain::{CallFailure, LlmReply};
+//! Unit tests for the pure rules in `handler.rs`.
 
 use super::*;
 
-fn failure(code: &str) -> CallFailure {
-    CallFailure { code: code.into(), message: "m".into() }
-}
-
-#[test]
-fn errors_map_to_connect_codes() {
-    let cases = [
-        (VisionError::NotConfigured("x".into()), ErrorCode::FailedPrecondition),
-        (VisionError::Screen(failure("unavailable")), ErrorCode::Unavailable),
-        (VisionError::Screen(failure("deadline_exceeded")), ErrorCode::DeadlineExceeded),
-        (VisionError::AllLlmsFailed { summary: "s".into(), all_timed_out: true }, ErrorCode::DeadlineExceeded),
-        (VisionError::AllLlmsFailed { summary: "s".into(), all_timed_out: false }, ErrorCode::Unavailable),
-    ];
-    for (error, code) in cases {
-        assert_eq!(to_connect_error(error).code, code);
+fn failed(id: &str, code: ErrorCode) -> LlmAnswer {
+    LlmAnswer {
+        caller_id: id.into(),
+        error_code: code.as_str().into(),
+        error_message: "x".into(),
+        ..Default::default()
     }
 }
 
 #[test]
-fn answers_keep_reply_or_failure() {
-    let duration = std::time::Duration::from_millis(5);
-    let reply = LlmReply { json: "{}".into(), text: "t".into(), model: "m".into() };
-    let ok = answer_message(Answer { caller_id: "a".into(), outcome: Ok(reply), duration });
-    assert!(ok.ok && ok.json == "{}" && ok.model == "m" && ok.duration_ms == 5);
-    let bad = answer_message(Answer { caller_id: "b".into(), outcome: Err(failure("internal")), duration });
-    assert!(!bad.ok && bad.error_code == "internal" && bad.error_message == "m");
+fn one_answer_is_enough() {
+    let ok = LlmAnswer { ok: true, ..Default::default() };
+    assert!(all_failed(&[failed("a", ErrorCode::Internal), ok]).is_none());
+}
+
+#[test]
+fn all_failed_lists_each_failure() {
+    let error = all_failed(&[failed("a", ErrorCode::Internal), failed("b", ErrorCode::DeadlineExceeded)]).unwrap();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    assert_eq!(error.message.as_deref(), Some("every model failed: a: x (internal); b: x (deadline_exceeded)"));
+}
+
+#[test]
+fn all_timed_out_is_deadline_exceeded() {
+    let error = all_failed(&[failed("a", ErrorCode::DeadlineExceeded)]).unwrap();
+    assert_eq!(error.code, ErrorCode::DeadlineExceeded);
+}
+
+#[test]
+fn screen_errors_become_unavailable_unless_timed_out() {
+    assert_eq!(no_screenshot(&ConnectError::not_found("no display")).code, ErrorCode::Unavailable);
+    assert_eq!(no_screenshot(&ConnectError::deadline_exceeded("slow")).code, ErrorCode::DeadlineExceeded);
 }

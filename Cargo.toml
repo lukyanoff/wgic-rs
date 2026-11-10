@@ -1,5 +1,5 @@
 # Cognitive Boxes workspace. Dependency arrows point DOWN only (see CLAUDE.md):
-#   apps/*  ->  services/*  ->  libs/*  ->  kernel, contracts
+#   apps/*  ->  services/*  ->  kernel, contracts
 #   apps/*  ->  platform    ->  kernel
 [workspace]
 resolver = "3"
@@ -7,7 +7,6 @@ members = [
     "crates/contracts",
     "crates/kernel",
     "crates/platform",
-    "libs/*",
     "services/*",
     "apps/*",
     "tests/e2e",
@@ -24,11 +23,8 @@ contracts = { path = "crates/contracts" }
 kernel = { path = "crates/kernel" }
 platform = { path = "crates/platform" }
 greet = { path = "services/greet" }
-screen_sensor = { path = "services/screen_sensor" }
-camera_sensor = { path = "services/camera_sensor" }
+sensor = { path = "services/sensor" }
 llm_caller = { path = "services/llm_caller" }
-sensor_base = { path = "libs/sensor_base" }
-clients = { path = "libs/clients" }
 visioner = { path = "services/visioner" }
 
 # third party
@@ -62,7 +58,6 @@ tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "registry"] }
 uuid = { version = "1.29.2", features = ["v4"] }
 v4l = "0.14.0"
-x11rb = { version = "0.14.0", features = ["randr"] }
 xcap = "0.9.10"
 
 # Readability limits, enforced by `cargo clippy` (thresholds in clippy.toml).

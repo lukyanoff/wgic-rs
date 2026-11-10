@@ -1,27 +1,19 @@
 # Box 3 — greet service
 
-Says hello. **Reference shape for every service** — copy it when adding one.
+Says hello. **Reference shape for every service**: copy it when adding one.
 
-- RPCs: `greet.v1.GreetService/Greet` (`proto/greet/v1/greet.proto`)
-- Rules: name is trimmed, must be non-empty and ≤ 100 chars → else `invalid_argument`
-- Calls other services: none
-- Config (env): none
-- Logs: `greeting sent` (name, transport), `greeting rejected` (reason)
-- Metrics: `greet.greetings` {transport}, `greet.rejected` {reason} → Prometheus `greet_greetings_total`, `greet_rejected_total`
+- RPC: `greet.v1.GreetService/Greet` (`proto/greet/v1/greet.proto`)
+- Rule: the name is trimmed, must be non-empty and ≤ 100 chars, else `invalid_argument`
+- Config: none. Calls other services: none.
+- Logs: `greeting sent` (name, transport). Metric: `greet.greetings{transport}` → Prometheus `greet_greetings_total`.
+  Failures are logged and measured by the platform.
 
 ```
-src/lib.rs      module(&Deps) -> Arc<dyn Module>   (the only public item; composition root: picks HelloGreeter)
-src/domain.rs        trait Greeter (interface) + struct HelloGreeter (impl) + GreetError
-                     (no async, no IO, no proto types)
-src/domain_tests.rs  unit tests for domain.rs
-src/handler.rs  generated trait impl: proto -> domain -> proto, domain error -> ConnectError;
-                Arc<dyn Greeter> + Logger + Metrics injected in GreetHandler::new(deps, greeter)
-tests/rpc.rs    integration: generated client over Deps::in_process (success + every error code,
-                logs/metrics checked with MemoryLogs/MemoryMetrics)
+src/lib.rs            module(&Deps) -> Arc<dyn Module>   (composition root: kernel::module("greet", handler))
+src/handler.rs        GreetHandler: the generated trait impl + a pure fn greeting(name) -> Result<String, ConnectError>
+src/handler_tests.rs  unit tests for greeting()
+tests/rpc.rs          integration: generated client over Deps::in_process (success + error code, logs/metrics checked)
 ```
 E2E: `tests/e2e/tests/greet.rs` (HTTP + NATS).
 
-- May depend on `contracts`, `kernel` and plain libraries. Never `platform`, another service,
-  `anyhow`, or `tracing`/`opentelemetry` (log and measure through the injected `Logger`/`Metrics`).
-- Errors: `GreetError` (domain enum) → `to_connect_error` in `handler.rs` → Connect code.
-- Test: `cargo test -p greet` (unit + integration), `cargo test -p e2e --test greet`.
+- Test: `cargo test -p greet`, `cargo test -p e2e --test greet`.

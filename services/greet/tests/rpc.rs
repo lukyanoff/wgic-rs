@@ -51,13 +51,10 @@ async fn empty_name_is_invalid_argument() {
 }
 
 #[tokio::test]
-async fn rejections_are_logged_and_counted_by_reason() {
+async fn rejected_names_are_not_counted_as_greetings() {
     let s = setup();
     s.client.greet(request("")).await.err().unwrap();
-
-    let entry = s.logs.find("greeting rejected").unwrap();
-    assert_eq!(entry.field("reason"), Some(&FieldValue::Str("empty_name".into())));
-    assert_eq!(s.metrics.sum("greet.rejected"), 1.0);
+    assert!(s.logs.find("greeting sent").is_none());
     assert_eq!(s.metrics.sum("greet.greetings"), 0.0);
 }
 

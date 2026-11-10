@@ -24,18 +24,7 @@ pub mod proto {
     pub mod sensor {
         pub mod v1 {
             include!("gen/buffa/sensor.v1.rs");
-        }
-    }
-    pub mod camera_sensor {
-        pub mod v1 {
-            include!("gen/buffa/camera_sensor.v1.rs");
-            include!("gen/connect/camera_sensor.v1.rs");
-        }
-    }
-    pub mod screen_sensor {
-        pub mod v1 {
-            include!("gen/buffa/screen_sensor.v1.rs");
-            include!("gen/connect/screen_sensor.v1.rs");
+            include!("gen/connect/sensor.v1.rs");
         }
     }
 }

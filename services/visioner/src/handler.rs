@@ -1,48 +1,79 @@
-//! Proto ⇄ domain for the server-streaming `Check` RPC, plus logs, metrics and error codes.
+//! `visioner.v1.VisionerService/Check`, a server stream. The story of one check:
+//! 1. take a screenshot from the sensor instance (`screen`: `capturing` → `captured`)
+//! 2. ask every model at once, passing each one's progress on (`<id>`: `started` … `done|failed|timeout`)
+//! 3. return every answer; the check fails only with no screenshot or when no model answered
 //!
-//! The check runs **inside** the response stream, not in a background task: the platform polls the stream
-//! inside this call's trace span, so the screen and llm calls join the same trace. When the client goes
-//! away (or its deadline passes) the stream is dropped, and with it every call still running.
+//! Everything runs inside the response stream: when the client goes away, every call still running is dropped.
 
 // ---------------------------------------------------------------------------------------------
 // Usings
 // ---------------------------------------------------------------------------------------------
 
-use std::sync::Arc;
+use std::future::Future;
+use std::time::{Duration, Instant};
 
 use connectrpc::{ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream};
-use contracts::proto::visioner::v1::{
-    CheckProgress, CheckRequest, CheckResponse, CheckResult, LlmAnswer, ScreenInfo, VisionerService,
-    check_response::Event,
+use contracts::proto::llm_caller::v1::{
+    CallRequest, CallResult, ChatMessage, Image, LlmCallerServiceClient, call_response,
 };
-use futures::StreamExt;
-use kernel::{Deps, Logger, Metrics, kv};
-use tokio::sync::mpsc;
+use contracts::proto::sensor::v1::{CaptureRequest, CaptureResponse, SensorServiceClient};
+use contracts::proto::visioner::v1::{
+    CheckProgress, CheckRequest, CheckResponse, CheckResult, LlmAnswer, VisionerService, check_response::Event,
+};
+use futures::future::join_all;
+use kernel::{Channel, Deps, Logger, Metrics, StreamTx, kv, stream_from};
 
-use crate::domain::{Answer, CheckOutcome, Progress, VisionError, Visioner};
+use crate::config::VisionerSettings;
 
-type Item = Result<CheckResponse, ConnectError>;
+/// The question asked when the request has none.
+const DEFAULT_QUESTION: &str = "What do you see on the screen?";
+
+/// The JSON every model must answer with.
+const ANSWER_SCHEMA: &str = r#"{"type":"object","properties":{"summary":{"type":"string"},"details":{"type":"array","items":{"type":"string"}}},"required":["summary","details"]}"#;
 
 // ---------------------------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------------------------
 
+/// Holds a generated client per instance it calls. Cheap to clone (the clients share their channel).
+#[derive(Clone)]
 pub struct VisionerHandler {
-    runner: Arc<CheckRunner>,
-}
-
-/// Everything one check needs; shared by all checks of this instance.
-struct CheckRunner {
-    /// `Err(message)` when the instance is not configured: every call answers `failed_precondition`.
-    visioner: Result<Visioner, String>,
+    screen: SensorServiceClient<Channel>,
+    llms: Vec<Llm>,
+    screen_timeout: Duration,
+    llm_timeout: Duration,
     log: Logger,
     metrics: Metrics,
 }
 
+/// One llm_caller instance.
+#[derive(Clone)]
+struct Llm {
+    id: String,
+    client: LlmCallerServiceClient<Channel>,
+}
+
 impl VisionerHandler {
-    pub fn new(deps: &Deps, id: &str, visioner: Result<Visioner, String>) -> Self {
-        let log = deps.logger("visioner").with([kv("visioner_id", id)]);
-        Self { runner: Arc::new(CheckRunner { visioner, log, metrics: deps.metrics("visioner") }) }
+    /// Every call carries its timeout as a deadline, so the called instance stops too when it passes.
+    pub fn new(deps: &Deps, settings: &VisionerSettings) -> Self {
+        let screen_config = deps.client_config().with_default_timeout(settings.screen_timeout);
+        let llm_config = deps.client_config().with_default_timeout(settings.llm_timeout);
+        let llms = settings
+            .llms
+            .iter()
+            .map(|id| Llm {
+                id: id.clone(),
+                client: LlmCallerServiceClient::new(deps.channel_to(id), llm_config.clone()),
+            })
+            .collect();
+        Self {
+            screen: SensorServiceClient::new(deps.channel_to(&settings.screen), screen_config),
+            llms,
+            screen_timeout: settings.screen_timeout,
+            llm_timeout: settings.llm_timeout,
+            log: deps.logger("visioner").with([kv("visioner_id", settings.id.as_str())]),
+            metrics: deps.metrics("visioner"),
+        }
     }
 }
 
@@ -53,13 +84,12 @@ impl VisionerService for VisionerHandler {
         _ctx: RequestContext,
         request: ServiceRequest<'_, CheckRequest>,
     ) -> ServiceResult<ServiceStream<CheckResponse>> {
-        let question = request.question.to_string();
-        let (tx, rx) = mpsc::unbounded_channel::<Item>();
-        let work = self.runner.clone().run(question, tx);
-        // `items` ends when `work` drops `tx`; `driver` only polls `work` and yields nothing.
-        let items = futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|item| (item, rx)) });
-        let driver = futures::stream::once(work).filter_map(|()| async { None::<Item> });
-        Response::ok(Box::pin(futures::stream::select(items, driver)))
+        let question = match request.question.trim() {
+            "" => DEFAULT_QUESTION.to_string(),
+            question => question.to_string(),
+        };
+        let handler = self.clone();
+        Response::ok(stream_from(move |tx| handler.run(question, tx)))
     }
 }
 
@@ -67,123 +97,152 @@ impl VisionerService for VisionerHandler {
 // One check
 // ---------------------------------------------------------------------------------------------
 
-impl CheckRunner {
-    async fn run(self: Arc<Self>, question: String, tx: mpsc::UnboundedSender<Item>) {
-        let visioner = match &self.visioner {
-            Ok(visioner) => visioner,
-            Err(message) => {
-                let _ = tx.send(Err(to_connect_error(VisionError::NotConfigured(message.clone()))));
-                return;
-            }
+impl VisionerHandler {
+    async fn run(self, question: String, tx: StreamTx<CheckResponse>) {
+        let report = Reporter { tx: tx.clone(), started: Instant::now() };
+        let screenshot = match self.capture(&report).await {
+            Ok(screenshot) => screenshot,
+            Err(error) => return tx.fail(error),
         };
-        let report = |progress: Progress| {
-            let _ = tx.send(Ok(progress_message(progress)));
-        };
-        let item = match visioner.check(&question, &report).await {
-            Ok(outcome) => {
-                self.record_success(&outcome);
-                Ok(result_message(outcome))
+        let request = ask_request(&question, &screenshot);
+        let asks = self.llms.iter().map(|llm| self.ask(llm, request.clone(), report.clone()));
+        let answers = join_all(asks).await; // ≈ `await Task.WhenAll(asks)`
+        self.record_failures(&answers);
+        if let Some(error) = all_failed(&answers) {
+            return tx.fail(error);
+        }
+        let duration_ms = report.started.elapsed().as_millis() as u64;
+        let result = CheckResult { screen: screenshot.metadata, answers, duration_ms, ..Default::default() };
+        tx.send(CheckResponse { event: Some(Event::from(result)), ..Default::default() });
+    }
+
+    async fn capture(&self, report: &Reporter) -> Result<CaptureResponse, ConnectError> {
+        report.send("screen", "capturing", "");
+        let capture = self.screen.capture(CaptureRequest::default());
+        let response = within(self.screen_timeout, "screen", async { Ok(capture.await?.into_owned()) })
+            .await
+            .map_err(|error| no_screenshot(&error))?;
+        report.send("screen", "captured", "");
+        Ok(response)
+    }
+
+    /// One model, within `llm_timeout`. On timeout its call is dropped, which cancels it.
+    async fn ask(&self, llm: &Llm, request: CallRequest, report: Reporter) -> LlmAnswer {
+        let started = Instant::now();
+        let outcome = within(self.llm_timeout, &llm.id, call_llm(llm, request, &report)).await;
+        let mut answer = LlmAnswer { caller_id: llm.id.clone(), ..Default::default() };
+        match outcome {
+            Ok(result) => {
+                report.send(&llm.id, "done", &result.text);
+                (answer.ok, answer.json, answer.model) = (true, result.json, result.metadata.model.clone());
             }
             Err(error) => {
-                self.record_failure(&error);
-                Err(to_connect_error(error))
+                let stage = if error.code == ErrorCode::DeadlineExceeded { "timeout" } else { "failed" };
+                answer.error_code = error.code.as_str().to_string();
+                answer.error_message = error.message.unwrap_or_default();
+                report.send(&llm.id, stage, &answer.error_message);
             }
+        }
+        answer.duration_ms = started.elapsed().as_millis() as u64;
+        answer
+    }
+
+    /// A model that failed while others answered: the client still gets a result, so say it here.
+    fn record_failures(&self, answers: &[LlmAnswer]) {
+        for answer in answers.iter().filter(|a| !a.ok) {
+            let (id, reason, error) =
+                (answer.caller_id.as_str(), answer.error_code.as_str(), answer.error_message.as_str());
+            self.log.warn("llm failed", [kv("caller_id", id), kv("reason", reason), kv("error", error)]);
+            self.metrics.count("llm_failures", 1, [kv("caller_id", id), kv("reason", reason)]);
+        }
+    }
+}
+
+/// Run one `Call`: pass each progress message on, return the result.
+async fn call_llm(llm: &Llm, request: CallRequest, report: &Reporter) -> Result<CallResult, ConnectError> {
+    let mut stream = llm.client.call(request).await?;
+    while let Some(message) = stream.message().await? {
+        match message.to_owned_message().event {
+            Some(call_response::Event::Progress(p)) => report.send(&llm.id, &p.stage, &p.partial_text),
+            Some(call_response::Event::Result(result)) => return Ok(*result),
+            None => {}
+        }
+    }
+    Err(ConnectError::internal("the stream ended without a result"))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------------------------
+
+/// Sends progress for any source (≈ C# `IProgress<T>`); each model's ask gets a clone.
+#[derive(Clone)]
+struct Reporter {
+    tx: StreamTx<CheckResponse>,
+    started: Instant,
+}
+
+impl Reporter {
+    fn send(&self, source: &str, stage: &str, partial_text: &str) {
+        let progress = CheckProgress {
+            source: source.into(),
+            stage: stage.into(),
+            partial_text: partial_text.into(),
+            elapsed_ms: self.started.elapsed().as_millis() as u32,
+            ..Default::default()
         };
-        let _ = tx.send(item);
-    }
-
-    fn record_success(&self, outcome: &CheckOutcome) {
-        let ok = outcome.answers.iter().filter(|a| a.outcome.is_ok()).count();
-        let ms = outcome.duration.as_millis() as u64;
-        self.log.info(
-            "check done",
-            [kv("answers_ok", ok as u64), kv("answers", outcome.answers.len() as u64), kv("ms", ms)],
-        );
-        self.metrics.count("checks", 1, [kv("result", "ok")]);
-        self.metrics.record("check_ms", ms as f64, []);
-        for answer in &outcome.answers {
-            if let Err(failure) = &answer.outcome {
-                self.log.warn(
-                    "llm failed",
-                    [kv("caller_id", answer.caller_id.as_str()), kv("error", failure.message.as_str())],
-                );
-                let tags = [kv("caller_id", answer.caller_id.as_str()), kv("reason", failure.code.as_str())];
-                self.metrics.count("llm_failures", 1, tags);
-            }
-        }
-    }
-
-    fn record_failure(&self, error: &VisionError) {
-        self.log.warn("check failed", [kv("reason", reason(error)), kv("error", error.to_string())]);
-        self.metrics.count("checks", 1, [kv("result", reason(error))]);
+        self.tx.send(CheckResponse { event: Some(Event::from(progress)), ..Default::default() });
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Mapping (pure)
+// Rules (pure, unit tested)
 // ---------------------------------------------------------------------------------------------
 
-fn progress_message(progress: Progress) -> CheckResponse {
-    let message = CheckProgress {
-        source: progress.source,
-        stage: progress.stage,
-        partial_text: progress.partial_text,
-        elapsed_ms: progress.elapsed.as_millis() as u32,
-        ..Default::default()
-    };
-    CheckResponse { event: Some(Event::from(message)), ..Default::default() }
-}
-
-fn result_message(outcome: CheckOutcome) -> CheckResponse {
-    let screen = ScreenInfo {
-        sensor_id: outcome.screen.sensor_id,
-        width: outcome.screen.width,
-        height: outcome.screen.height,
-        mime_type: outcome.screen.mime_type,
-        bytes: outcome.screen.bytes,
-        capture_ms: outcome.screen.capture_ms,
-        ..Default::default()
-    };
-    let answers = outcome.answers.into_iter().map(answer_message).collect();
-    let duration_ms = outcome.duration.as_millis() as u64;
-    let result = CheckResult { screen: screen.into(), answers, duration_ms, ..Default::default() };
-    CheckResponse { event: Some(Event::from(result)), ..Default::default() }
-}
-
-fn answer_message(answer: Answer) -> LlmAnswer {
-    let mut message = LlmAnswer {
-        caller_id: answer.caller_id,
-        duration_ms: answer.duration.as_millis() as u64,
-        ..Default::default()
-    };
-    match answer.outcome {
-        Ok(reply) => {
-            message.ok = true;
-            (message.json, message.text, message.model) = (reply.json, reply.text, reply.model);
-        }
-        Err(failure) => (message.error_code, message.error_message) = (failure.code, failure.message),
-    }
-    message
-}
-
-/// Short, stable label for logs and the `visioner.checks` metric.
-fn reason(error: &VisionError) -> &'static str {
-    match error {
-        VisionError::NotConfigured(_) => "not_configured",
-        VisionError::Screen(_) => "screen_failed",
-        VisionError::AllLlmsFailed { .. } => "all_llms_failed",
+/// `work`, or `deadline_exceeded` when it takes longer than `limit` (dropping it).
+async fn within<T>(
+    limit: Duration,
+    what: &str,
+    work: impl Future<Output = Result<T, ConnectError>>,
+) -> Result<T, ConnectError> {
+    match tokio::time::timeout(limit, work).await {
+        Ok(outcome) => outcome,
+        Err(_) => Err(ConnectError::deadline_exceeded(format!("{what}: no answer within {limit:?}"))),
     }
 }
 
-fn to_connect_error(error: VisionError) -> ConnectError {
-    let code = match &error {
-        VisionError::NotConfigured(_) => ErrorCode::FailedPrecondition,
-        VisionError::Screen(failure) if failure.code == crate::domain::DEADLINE_EXCEEDED => ErrorCode::DeadlineExceeded,
-        VisionError::Screen(_) => ErrorCode::Unavailable,
-        VisionError::AllLlmsFailed { all_timed_out: true, .. } => ErrorCode::DeadlineExceeded,
-        VisionError::AllLlmsFailed { .. } => ErrorCode::Unavailable,
-    };
-    ConnectError::new(code, error.to_string())
+/// A failed capture fails the check: `deadline_exceeded` stays, anything else becomes `unavailable`.
+fn no_screenshot(error: &ConnectError) -> ConnectError {
+    let message = format!("no screenshot: {}", error.message.as_deref().unwrap_or_default());
+    match error.code {
+        ErrorCode::DeadlineExceeded => ConnectError::deadline_exceeded(message),
+        _ => ConnectError::unavailable(message),
+    }
+}
+
+/// The question and the screenshot as one user message, asking for `ANSWER_SCHEMA` JSON.
+fn ask_request(question: &str, screenshot: &CaptureResponse) -> CallRequest {
+    let mime_type = screenshot.metadata.mime_type.clone();
+    let image = Image { data: screenshot.image.to_vec(), mime_type, ..Default::default() };
+    let message =
+        ChatMessage { role: "user".into(), content: question.into(), images: vec![image], ..Default::default() };
+    CallRequest { messages: vec![message], json_schema: ANSWER_SCHEMA.into(), ..Default::default() }
+}
+
+/// `None` when at least one model answered; otherwise the error for the client, listing each failure.
+/// `deadline_exceeded` when every model ran out of time, else `unavailable`.
+fn all_failed(answers: &[LlmAnswer]) -> Option<ConnectError> {
+    if answers.iter().any(|a| a.ok) {
+        return None;
+    }
+    let failures: Vec<String> =
+        answers.iter().map(|a| format!("{}: {} ({})", a.caller_id, a.error_message, a.error_code)).collect();
+    let message = format!("every model failed: {}", failures.join("; "));
+    let all_timed_out = answers.iter().all(|a| a.error_code == ErrorCode::DeadlineExceeded.as_str());
+    Some(match all_timed_out {
+        true => ConnectError::deadline_exceeded(message),
+        false => ConnectError::unavailable(message),
+    })
 }
 
 #[cfg(test)]

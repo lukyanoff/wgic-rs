@@ -22,7 +22,6 @@ LLM_OPENAI_MODEL="${LLM_OPENAI_MODEL:-gpt-5-mini}"
 LLM_OPENAI_EFFORT="${LLM_OPENAI_EFFORT:-low}"
 LLM_OPENROUTER_MODEL="${LLM_OPENROUTER_MODEL:-openai/gpt-oss-120b}"
 LLM_OPENROUTER_EFFORT="${LLM_OPENROUTER_EFFORT:-low}"
-LLM_OPENROUTER_TEMPERATURE="${LLM_OPENROUTER_TEMPERATURE:-0.2}"
 
 export NATS_URL="${NATS_URL:-nats://127.0.0.1:4222}"
 # Send traces, logs and metrics to the OTel collector from compose (Jaeger :16686 shows the traces).
@@ -46,8 +45,7 @@ start() {
 start llm-claude     LLM_CALLER_DRIVER=claude-cli LLM_CALLER_MODEL="$LLM_CLAUDE_MODEL"     LLM_CALLER_EFFORT="$LLM_CLAUDE_EFFORT"
 start llm-agy        LLM_CALLER_DRIVER=agy-cli    LLM_CALLER_MODEL="$LLM_AGY_MODEL"        LLM_CALLER_EFFORT="$LLM_AGY_EFFORT"
 start llm-openai     LLM_CALLER_DRIVER=openai     LLM_CALLER_MODEL="$LLM_OPENAI_MODEL"     LLM_CALLER_EFFORT="$LLM_OPENAI_EFFORT"
-start llm-openrouter LLM_CALLER_DRIVER=openrouter LLM_CALLER_MODEL="$LLM_OPENROUTER_MODEL" LLM_CALLER_EFFORT="$LLM_OPENROUTER_EFFORT" \
-  LLM_CALLER_TEMPERATURE="$LLM_OPENROUTER_TEMPERATURE"
+start llm-openrouter LLM_CALLER_DRIVER=openrouter LLM_CALLER_MODEL="$LLM_OPENROUTER_MODEL" LLM_CALLER_EFFORT="$LLM_OPENROUTER_EFFORT"
 
 echo "run-llm-callers: started llm-claude, llm-agy, llm-openai, llm-openrouter on NATS (Ctrl+C stops all)"
 wait

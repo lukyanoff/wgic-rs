@@ -1,14 +1,14 @@
 //! E2E: VisionerService orchestrating real hosts, all over NATS.
 //!
 //! Four `host` processes, each its own NATS instance id:
-//! - a screen sensor (captures this machine's screen)
+//! - a `sensor` (captures this machine's screen as JPEG)
 //! - `llm ok`: llm_caller with the `openai` driver against a fake server that answers
 //! - `llm hang`: the same against a fake server that never answers
 //! - the visioner, configured with those three ids and a 3 s model timeout
 //!
 //! Expected: progress from the screen and both models, then a result where `ok` answered and `hang` timed
 //! out, and the hanging provider call was cancelled. Without a display the screen answers `unavailable`
-//! (like the screen_sensor e2e), and so does the check.
+//! (like the sensor e2e), and so does the check.
 
 use std::time::Duration;
 
@@ -52,7 +52,7 @@ fn sources(all: &[CheckResponse]) -> Vec<String> {
 
 #[tokio::test]
 async fn one_answer_one_timeout_and_the_slow_call_is_cancelled() {
-    let screen = Host::start_with_env("screen_sensor", &[("SCREEN_SENSOR_FORMAT", "jpeg:80")]).await;
+    let screen = Host::start_with_env("sensor", &[("SENSOR_FORMAT", "jpeg")]).await;
     let ok = llm_host(false, Seen::default()).await;
     let hang_seen = Seen::default();
     let hang = llm_host(true, hang_seen.clone()).await;
@@ -71,7 +71,7 @@ async fn one_answer_one_timeout_and_the_slow_call_is_cancelled() {
         Err(error) => panic!("unexpected error: {error:?}"),
     };
     let Some(Event::Result(result)) = &all.last().expect("messages").event else { panic!("the result comes last") };
-    assert!(result.screen.bytes > 0 && result.screen.mime_type == "image/jpeg", "{:?}", result.screen);
+    assert!(result.screen.width > 0 && result.screen.mime_type == "image/jpeg", "{:?}", result.screen);
     let (answer_ok, answer_hang) = (&result.answers[0], &result.answers[1]);
     assert!(answer_ok.ok && answer_ok.json == r#"{"city":"Paris","country":"FR"}"#, "{answer_ok:?}");
     assert!(!answer_hang.ok && answer_hang.error_code == "deadline_exceeded", "{answer_hang:?}");
@@ -91,7 +91,8 @@ async fn one_answer_one_timeout_and_the_slow_call_is_cancelled() {
 /// with a message that says how to call it, not a bare "method not found".
 #[tokio::test]
 async fn unary_request_over_nats_explains_that_check_is_streaming() {
-    let visioner = Host::start("visioner").await;
+    let env = [("VISIONER_SCREEN", "screen-x"), ("VISIONER_LLMS", "llm-x")]; // never called here
+    let visioner = Host::start_with_env("visioner", &env).await;
     let nc = async_nats::connect(e2e::nats_url()).await.expect("connect NATS");
     let mut headers = async_nats::HeaderMap::new();
     headers.insert("Content-Type", "application/json");

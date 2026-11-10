@@ -1,26 +1,34 @@
-//! Proto ⇄ domain. Keep this thin: decode, call the injected `Greeter`, log/measure, encode.
+//! `greet.v1.GreetService/Greet`: check the name, answer "Hello, <name>!", then log and count the greeting.
+//! Failed calls need no code here: the platform logs and measures every RPC with its error code.
 
-use connectrpc::{ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult};
+// ---------------------------------------------------------------------------------------------
+// Usings
+// ---------------------------------------------------------------------------------------------
+
+use connectrpc::{ConnectError, RequestContext, Response, ServiceRequest, ServiceResult};
 use contracts::proto::greet::v1::{GreetRequest, GreetResponse, GreetService};
 use kernel::{Deps, Logger, Metrics, RequestContextExt, kv};
 
-use std::sync::Arc;
+/// Longest name accepted, in characters (not bytes).
+const MAX_NAME_CHARS: usize = 100;
 
-use crate::domain::{GreetError, Greeter};
+// ---------------------------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------------------------
 
-/// Dependencies are injected through `new` (like constructor injection in C#).
+/// ≈ `class GreetHandler : GreetService.GreetServiceBase`, with logger and metrics injected in the constructor.
 pub struct GreetHandler {
-    greeter: Arc<dyn Greeter>,
     log: Logger,
     metrics: Metrics,
 }
 
 impl GreetHandler {
-    pub fn new(deps: &Deps, greeter: Arc<dyn Greeter>) -> Self {
-        Self { greeter, log: deps.logger("greet"), metrics: deps.metrics("greet") }
+    pub fn new(deps: &Deps) -> Self {
+        Self { log: deps.logger("greet"), metrics: deps.metrics("greet") }
     }
 }
 
+// `#[allow(refining_impl_trait)]`: our async methods are a bit more specific than the generated trait asks for.
 #[allow(refining_impl_trait)]
 impl GreetService for GreetHandler {
     async fn greet(
@@ -28,30 +36,31 @@ impl GreetService for GreetHandler {
         ctx: RequestContext,
         request: ServiceRequest<'_, GreetRequest>,
     ) -> ServiceResult<GreetResponse> {
+        // `?` hands the error straight back to the client (≈ `throw new RpcException(...)`).
+        let greeting = greeting(request.name)?;
         let transport = ctx.transport().name();
-        let greeting = match self.greeter.greet(request.name) {
-            Ok(greeting) => greeting,
-            Err(error) => {
-                self.log.warn("greeting rejected", [kv("reason", reason(&error))]);
-                self.metrics.count("rejected", 1, [kv("reason", reason(&error))]);
-                return Err(to_connect_error(error));
-            }
-        };
-        // Logs carry trace_id/span_id automatically (we run inside the rpc.server span).
         self.log.info("greeting sent", [kv("name", request.name), kv("transport", transport)]);
         self.metrics.count("greetings", 1, [kv("transport", transport)]);
         Response::ok(GreetResponse { greeting, ..Default::default() })
     }
 }
 
-fn to_connect_error(error: GreetError) -> ConnectError {
-    ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+// ---------------------------------------------------------------------------------------------
+// Rules (pure, unit tested)
+// ---------------------------------------------------------------------------------------------
+
+/// `" Jane "` → `"Hello, Jane!"`. An empty or too long name is `invalid_argument`.
+fn greeting(name: &str) -> Result<String, ConnectError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(ConnectError::invalid_argument("name must not be empty"));
+    }
+    if name.chars().count() > MAX_NAME_CHARS {
+        return Err(ConnectError::invalid_argument(format!("name must be at most {MAX_NAME_CHARS} characters")));
+    }
+    Ok(format!("Hello, {name}!"))
 }
 
-/// Short, stable label for logs and the `greet.rejected` metric.
-fn reason(error: &GreetError) -> &'static str {
-    match error {
-        GreetError::EmptyName => "empty_name",
-        GreetError::NameTooLong { .. } => "name_too_long",
-    }
-}
+#[cfg(test)]
+#[path = "handler_tests.rs"]
+mod tests;

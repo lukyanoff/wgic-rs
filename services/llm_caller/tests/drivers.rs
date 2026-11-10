@@ -1,17 +1,13 @@
 //! Integration: the two driver base classes against stand-ins for the real thing:
-//! - `CliCaller` runs a small shell script that prints recorded `claude` stream-json lines;
-//! - `HttpCaller` talks to a local TCP server that answers with recorded OpenAI SSE events.
+//! - `CliDriver` runs a small shell script that prints recorded `claude` / `agy` lines;
+//! - `HttpDriver` talks to a local TCP server that answers with recorded chat-completions SSE events.
 
-use std::sync::Arc;
-use std::time::Duration;
-
-use llm_caller::config::{DriverKind, LlmSettings};
-use llm_caller::domain::{ChatMessage, Delta, Image, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
-use llm_caller::drivers::cli::agy::AgyCli;
-use llm_caller::drivers::cli::base::CliCaller;
-use llm_caller::drivers::cli::claude::ClaudeCli;
-use llm_caller::drivers::http::base::HttpCaller;
-use llm_caller::drivers::http::openai::OpenAi;
+use connectrpc::{ConnectError, ErrorCode};
+use kernel::Deps;
+use llm_caller::LlmSettings;
+use llm_caller::drivers::{
+    AgyCli, CallRequest, ChatMessage, ClaudeCli, CliDriver, Delta, HttpDriver, Image, LlmDriver, LlmReply,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -20,13 +16,20 @@ use tokio::sync::mpsc;
 // Helpers
 // ---------------------------------------------------------------------------------------------
 
-fn request() -> LlmRequest {
-    let messages = vec![ChatMessage::new(Role::User, "hi")];
-    LlmRequest { messages, json_schema: None }
+fn user(content: &str) -> ChatMessage {
+    ChatMessage { role: "user".into(), content: content.into(), ..Default::default() }
+}
+
+fn request() -> CallRequest {
+    CallRequest { messages: vec![user("hi")], ..Default::default() }
+}
+
+fn settings(driver: &str) -> LlmSettings {
+    LlmSettings { id: "t".into(), driver: driver.into(), model: "m".into(), ..Default::default() }
 }
 
 /// Run one call; return the result and every delta the driver reported.
-async fn run(driver: &dyn LlmDriver) -> (Result<LlmReply, LlmError>, Vec<Delta>) {
+async fn run(driver: &dyn LlmDriver) -> (Result<LlmReply, ConnectError>, Vec<Delta>) {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let result = driver.call(request(), tx).await;
     let mut deltas = Vec::new();
@@ -54,7 +57,6 @@ fi"#;
 struct Scripts {
     ok: String,
     fail: String,
-    slow: String,
     /// A fake agy that answers `{"seen":"image-1.png"}` only when that file is in its folder.
     agy_image: String,
 }
@@ -69,7 +71,6 @@ fn scripts() -> &'static Scripts {
         Scripts {
             ok: script("claude_ok", &format!("cat > /dev/null\n{}", echo.join("\n"))),
             fail: script("claude_fail", "echo 'invalid model: m' >&2\nexit 3"),
-            slow: script("claude_slow", "sleep 30"),
             agy_image: script("agy_image", AGY_IMAGE_SCRIPT),
         }
     })
@@ -86,11 +87,9 @@ fn script(name: &str, body: &str) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn claude_with(cli_path: String) -> CliCaller {
-    let mut settings = LlmSettings::new("t", DriverKind::ClaudeCli, "m");
-    settings.cli_path = Some(cli_path);
-    settings.timeout = Duration::from_secs(5);
-    CliCaller::new(Arc::new(ClaudeCli), settings)
+fn claude_with(cli_path: String) -> CliDriver {
+    let settings = LlmSettings { cli_path: Some(cli_path), ..settings("claude-cli") };
+    CliDriver::new(ClaudeCli, &settings)
 }
 
 /// Serve one HTTP request with `status` and `body`; return the base URL.
@@ -137,14 +136,15 @@ fn request_complete(data: &[u8]) -> bool {
     data.len() >= end + 4 + length
 }
 
-fn openai_at(base_url: String, api_key: Option<&str>) -> HttpCaller {
-    let mut settings = LlmSettings::new("t", DriverKind::OpenAi, "m");
-    settings.base_url = Some(base_url);
-    HttpCaller::new(Arc::new(OpenAi), settings, api_key.map(String::from))
+fn openai_at(base_url: String, api_key: Option<&str>) -> HttpDriver {
+    let settings = LlmSettings { base_url: Some(base_url), ..settings("openai") };
+    // A blank value counts as unset, so a real OPENAI_API_KEY on this machine can't leak into the test.
+    let deps = Deps::in_process(&[]).with_env([("OPENAI_API_KEY", api_key.unwrap_or(""))]);
+    HttpDriver::new(&deps, &settings)
 }
 
 // ---------------------------------------------------------------------------------------------
-// CliCaller
+// CliDriver
 // ---------------------------------------------------------------------------------------------
 
 #[tokio::test]
@@ -157,57 +157,53 @@ async fn cli_streams_text_and_returns_the_result_line() {
 
 #[tokio::test]
 async fn agy_finds_the_image_as_a_file_in_its_folder() {
-    let mut settings = LlmSettings::new("t", DriverKind::AgyCli, "m");
-    settings.cli_path = Some(scripts().agy_image.clone());
-    let mut message = ChatMessage::new(Role::User, "what is this?");
-    message.images.push(Image { data: vec![0x89, b'P', b'N', b'G'], mime_type: "image/png".into() });
-    let request = LlmRequest { messages: vec![message], json_schema: None };
+    let settings = LlmSettings { cli_path: Some(scripts().agy_image.clone()), ..settings("agy-cli") };
+    let mut message = user("what is this?");
+    message.images.push(Image {
+        data: vec![0x89, b'P', b'N', b'G'],
+        mime_type: "image/png".into(),
+        ..Default::default()
+    });
+    let request = CallRequest { messages: vec![message], ..Default::default() };
     let (tx, _rx) = mpsc::unbounded_channel();
-    let reply = CliCaller::new(Arc::new(AgyCli), settings).call(request, tx).await.unwrap();
+    let reply = CliDriver::new(AgyCli, &settings).call(request, tx).await.unwrap();
     assert_eq!(reply.text, r#"{"seen":"image-1.png"}"#);
 }
 
 #[tokio::test]
 async fn cli_failure_reports_stderr() {
     let (result, _) = run(&claude_with(scripts().fail.clone())).await;
-    let Err(LlmError::Failed(message)) = result else { panic!("expected Failed, got {result:?}") };
-    assert!(message.contains("invalid model: m"), "{message}");
+    let error = result.unwrap_err();
+    assert_eq!(error.code, ErrorCode::Internal);
+    assert!(error.message.as_deref().unwrap_or_default().contains("invalid model: m"), "{error:?}");
 }
 
 #[tokio::test]
-async fn missing_cli_is_not_configured() {
+async fn missing_cli_is_failed_precondition() {
     scripts(); // see `scripts`: no process starts while they are being written
     let (result, _) = run(&claude_with("/no/such/claude".into())).await;
-    assert!(matches!(result, Err(LlmError::NotConfigured(_))), "{result:?}");
-}
-
-#[tokio::test]
-async fn slow_cli_times_out() {
-    let mut caller_settings = LlmSettings::new("t", DriverKind::ClaudeCli, "m");
-    caller_settings.cli_path = Some(scripts().slow.clone());
-    caller_settings.timeout = Duration::from_millis(300);
-    let (result, _) = run(&CliCaller::new(Arc::new(ClaudeCli), caller_settings)).await;
-    assert!(matches!(result, Err(LlmError::Unavailable(_))), "{result:?}");
+    assert_eq!(result.unwrap_err().code, ErrorCode::FailedPrecondition);
 }
 
 // ---------------------------------------------------------------------------------------------
-// HttpCaller
+// HttpDriver
 // ---------------------------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_streams_sse_text_and_usage() {
     let events = [
-        r#"{"type":"response.created"}"#,
-        r#"{"type":"response.output_text.delta","delta":"[1,"}"#,
-        r#"{"type":"response.output_text.delta","delta":" 2]"}"#,
-        r#"{"type":"response.completed","response":{"usage":{"input_tokens":5,"output_tokens":6}}}"#,
+        r#"{"choices":[{"delta":{"reasoning":"hmm"}}]}"#,
+        r#"{"choices":[{"delta":{"content":"[1,"}}]}"#,
+        r#"{"choices":[{"delta":{"content":" 2]"}}]}"#,
+        r#"{"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":6}}"#,
+        "[DONE]",
     ];
-    let body: String = events.iter().map(|e| format!("event: x\ndata: {e}\n\n")).collect();
+    let body: String = events.iter().map(|e| format!("data: {e}\n\n")).collect();
     let base = fake_server("200 OK", "text/event-stream", body).await;
     let (result, deltas) = run(&openai_at(base, Some("key"))).await;
     let reply = result.unwrap();
     assert_eq!((reply.text.as_str(), reply.input_tokens, reply.output_tokens), ("[1, 2]", 5, 6));
-    assert_eq!(deltas.len(), 2);
+    assert_eq!(deltas, [Delta::Thinking, Delta::Text("[1,".into()), Delta::Text(" 2]".into())]);
 }
 
 #[tokio::test]
@@ -215,11 +211,15 @@ async fn http_401_is_unauthenticated() {
     let body = r#"{"error":{"message":"Incorrect API key provided"}}"#.to_string();
     let base = fake_server("401 Unauthorized", "application/json", body).await;
     let (result, _) = run(&openai_at(base, Some("bad"))).await;
-    assert_eq!(result.unwrap_err(), LlmError::Unauthenticated("HTTP 401: Incorrect API key provided".into()));
+    let error = result.unwrap_err();
+    assert_eq!(error.code, ErrorCode::Unauthenticated);
+    assert_eq!(error.message.as_deref(), Some("HTTP 401: Incorrect API key provided"));
 }
 
 #[tokio::test]
-async fn missing_api_key_is_not_configured() {
+async fn missing_api_key_is_failed_precondition() {
     let (result, _) = run(&openai_at("http://127.0.0.1:9".into(), None)).await;
-    assert_eq!(result.unwrap_err(), LlmError::NotConfigured("OPENAI_API_KEY is not set".into()));
+    let error = result.unwrap_err();
+    assert_eq!(error.code, ErrorCode::FailedPrecondition);
+    assert_eq!(error.message.as_deref(), Some("OPENAI_API_KEY is not set"));
 }

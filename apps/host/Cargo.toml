@@ -14,8 +14,7 @@ tracing.workspace = true
 
 # services (one line per service)
 greet.workspace = true
-screen_sensor.workspace = true
-camera_sensor.workspace = true
+sensor.workspace = true
 llm_caller.workspace = true
 visioner.workspace = true
 

@@ -50,7 +50,7 @@ pub const VISIONER_SERVICE_CHECK_SPEC: ::connectrpc::Spec = ::connectrpc::Spec::
         ::connectrpc::StreamType::ServerStream,
     )
     .with_idempotency_level(::connectrpc::IdempotencyLevel::Unknown);
-/// Takes a screenshot from one screen sensor instance and asks K llm_caller instances, in parallel,
+/// Takes a screenshot from one sensor instance and asks K llm_caller instances, in parallel,
 /// what they see. Streams progress from every step, then one result with every model's answer.
 /// Which instances it calls is fixed by its configuration (VISIONER_SCREEN, VISIONER_LLMS).
 ///

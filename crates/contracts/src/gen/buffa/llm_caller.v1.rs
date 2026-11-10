@@ -190,7 +190,7 @@ pub const __CHAT_MESSAGE_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buff
     from_json: ::buffa::type_registry::any_from_json::<ChatMessage>,
     is_wkt: false,
 };
-/// One picture: image/png | image/jpeg | image/webp | image/gif, at most 5 MB.
+/// One picture, e.g. image/png or image/jpeg.
 #[derive(Clone, PartialEq, Default)]
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[serde(default)]
@@ -340,8 +340,8 @@ pub const __IMAGE_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buffa::type
     from_json: ::buffa::type_registry::any_from_json::<Image>,
     is_wkt: false,
 };
-/// Model, effort and temperature come from the service configuration (one instance = one
-/// model setup), so the request carries only the conversation and the wanted JSON shape.
+/// Driver, model and effort come from the service configuration (one instance = one model setup),
+/// so the request carries only the conversation and the wanted JSON shape.
 #[derive(Clone, PartialEq, Default)]
 #[derive(::serde::Serialize, ::serde::Deserialize)]
 #[serde(default)]
@@ -1176,21 +1176,7 @@ pub struct CallMetadata {
         skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
     )]
     pub model: ::buffa::alloc::string::String,
-    /// Field 4: `effort`
-    #[serde(
-        rename = "effort",
-        with = "::buffa::json_helpers::proto_string",
-        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
-    )]
-    pub effort: ::buffa::alloc::string::String,
-    /// Field 5: `temperature`
-    #[serde(
-        rename = "temperature",
-        with = "::buffa::json_helpers::opt_double",
-        skip_serializing_if = "::core::option::Option::is_none"
-    )]
-    pub temperature: ::core::option::Option<f64>,
-    /// Field 6: `duration_ms`
+    /// Field 4: `duration_ms`
     #[serde(
         rename = "durationMs",
         alias = "duration_ms",
@@ -1198,7 +1184,7 @@ pub struct CallMetadata {
         skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u64"
     )]
     pub duration_ms: u64,
-    /// Field 7: `input_tokens`
+    /// Field 5: `input_tokens`
     #[serde(
         rename = "inputTokens",
         alias = "input_tokens",
@@ -1206,7 +1192,7 @@ pub struct CallMetadata {
         skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u64"
     )]
     pub input_tokens: u64,
-    /// Field 8: `output_tokens`
+    /// Field 6: `output_tokens`
     #[serde(
         rename = "outputTokens",
         alias = "output_tokens",
@@ -1214,18 +1200,6 @@ pub struct CallMetadata {
         skip_serializing_if = "::buffa::json_helpers::skip_if::is_zero_u64"
     )]
     pub output_tokens: u64,
-    /// Driver-specific data, e.g. cost_usd, session_id.
-    ///
-    /// Field 9: `attributes`
-    #[serde(
-        rename = "attributes",
-        skip_serializing_if = "::buffa::__private::HashMap::is_empty",
-        deserialize_with = "::buffa::json_helpers::null_as_default"
-    )]
-    pub attributes: ::buffa::__private::HashMap<
-        ::buffa::alloc::string::String,
-        ::buffa::alloc::string::String,
-    >,
     #[serde(skip)]
     #[doc(hidden)]
     pub __buffa_unknown_fields: ::buffa::UnknownFields,
@@ -1236,12 +1210,9 @@ impl ::core::fmt::Debug for CallMetadata {
             .field("caller_id", &self.caller_id)
             .field("driver", &self.driver)
             .field("model", &self.model)
-            .field("effort", &self.effort)
-            .field("temperature", &self.temperature)
             .field("duration_ms", &self.duration_ms)
             .field("input_tokens", &self.input_tokens)
             .field("output_tokens", &self.output_tokens)
-            .field("attributes", &self.attributes)
             .finish()
     }
 }
@@ -1251,15 +1222,6 @@ impl CallMetadata {
     ///
     /// Format: `type.googleapis.com/<fully.qualified.TypeName>`
     pub const TYPE_URL: &'static str = "type.googleapis.com/llm_caller.v1.CallMetadata";
-}
-impl CallMetadata {
-    #[must_use = "with_* setters return `self` by value; assign or chain the result"]
-    #[inline]
-    ///Sets [`Self::temperature`] to `Some(value)`, consuming and returning `self`.
-    pub fn with_temperature(mut self, value: f64) -> Self {
-        self.temperature = Some(value);
-        self
-    }
 }
 ::buffa::impl_default_instance!(CallMetadata);
 impl ::buffa::MessageName for CallMetadata {
@@ -1290,12 +1252,6 @@ impl ::buffa::Message for CallMetadata {
         if !self.model.is_empty() {
             size += 1u64 + ::buffa::types::string_encoded_len(&self.model) as u64;
         }
-        if !self.effort.is_empty() {
-            size += 1u64 + ::buffa::types::string_encoded_len(&self.effort) as u64;
-        }
-        if self.temperature.is_some() {
-            size += 1u64 + ::buffa::types::FIXED64_ENCODED_LEN as u64;
-        }
         if self.duration_ms != 0u64 {
             size += 1u64 + ::buffa::types::uint64_encoded_len(self.duration_ms) as u64;
         }
@@ -1305,12 +1261,6 @@ impl ::buffa::Message for CallMetadata {
         if self.output_tokens != 0u64 {
             size += 1u64 + ::buffa::types::uint64_encoded_len(self.output_tokens) as u64;
         }
-        size
-            += ::buffa::map_codec::field_len::<
-                ::buffa::map_codec::Str,
-                ::buffa::map_codec::Str,
-                _,
-            >(&self.attributes, 1u64);
         size += self.__buffa_unknown_fields.encoded_len() as u64;
         ::buffa::saturate_size(size)
     }
@@ -1330,26 +1280,15 @@ impl ::buffa::Message for CallMetadata {
         if !self.model.is_empty() {
             ::buffa::types::put_string_field(3u32, &self.model, buf);
         }
-        if !self.effort.is_empty() {
-            ::buffa::types::put_string_field(4u32, &self.effort, buf);
-        }
-        if let Some(v) = self.temperature {
-            ::buffa::types::put_double_field(5u32, v, buf);
-        }
         if self.duration_ms != 0u64 {
-            ::buffa::types::put_uint64_field(6u32, self.duration_ms, buf);
+            ::buffa::types::put_uint64_field(4u32, self.duration_ms, buf);
         }
         if self.input_tokens != 0u64 {
-            ::buffa::types::put_uint64_field(7u32, self.input_tokens, buf);
+            ::buffa::types::put_uint64_field(5u32, self.input_tokens, buf);
         }
         if self.output_tokens != 0u64 {
-            ::buffa::types::put_uint64_field(8u32, self.output_tokens, buf);
+            ::buffa::types::put_uint64_field(6u32, self.output_tokens, buf);
         }
-        ::buffa::map_codec::write_field::<
-            ::buffa::map_codec::Str,
-            ::buffa::map_codec::Str,
-            _,
-        >(&self.attributes, 9u32, buf);
         self.__buffa_unknown_fields.write_to(buf);
     }
     fn merge_field(
@@ -1387,50 +1326,23 @@ impl ::buffa::Message for CallMetadata {
             4u32 => {
                 ::buffa::encoding::check_wire_type(
                     tag,
-                    ::buffa::encoding::WireType::LengthDelimited,
-                )?;
-                ::buffa::types::merge_string(&mut self.effort, buf)?;
-            }
-            5u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::Fixed64,
-                )?;
-                self.temperature = ::core::option::Option::Some(
-                    ::buffa::types::decode_double(buf)?,
-                );
-            }
-            6u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
                     ::buffa::encoding::WireType::Varint,
                 )?;
                 self.duration_ms = ::buffa::types::decode_uint64(buf)?;
             }
-            7u32 => {
+            5u32 => {
                 ::buffa::encoding::check_wire_type(
                     tag,
                     ::buffa::encoding::WireType::Varint,
                 )?;
                 self.input_tokens = ::buffa::types::decode_uint64(buf)?;
             }
-            8u32 => {
+            6u32 => {
                 ::buffa::encoding::check_wire_type(
                     tag,
                     ::buffa::encoding::WireType::Varint,
                 )?;
                 self.output_tokens = ::buffa::types::decode_uint64(buf)?;
-            }
-            9u32 => {
-                ::buffa::encoding::check_wire_type(
-                    tag,
-                    ::buffa::encoding::WireType::LengthDelimited,
-                )?;
-                ::buffa::map_codec::merge_entry::<
-                    ::buffa::map_codec::Str,
-                    ::buffa::map_codec::Str,
-                    _,
-                >(&mut self.attributes, buf, ctx)?;
             }
             _ => {
                 self.__buffa_unknown_fields
@@ -1443,12 +1355,9 @@ impl ::buffa::Message for CallMetadata {
         self.caller_id.clear();
         self.driver.clear();
         self.model.clear();
-        self.effort.clear();
-        self.temperature = ::core::option::Option::None;
         self.duration_ms = 0u64;
         self.input_tokens = 0u64;
         self.output_tokens = 0u64;
-        self.attributes.clear();
         self.__buffa_unknown_fields.clear();
     }
 }
@@ -1852,7 +1761,7 @@ pub mod __buffa {
                 ::serde::Serialize::serialize(&self.0, __s)
             }
         }
-        /// One picture: image/png | image/jpeg | image/webp | image/gif, at most 5 MB.
+        /// One picture, e.g. image/png or image/jpeg.
         #[derive(Clone, Debug, Default)]
         pub struct ImageView<'a> {
             /// Field 1: `data`
@@ -2138,8 +2047,8 @@ pub mod __buffa {
                 ::serde::Serialize::serialize(&self.0, __s)
             }
         }
-        /// Model, effort and temperature come from the service configuration (one instance = one
-        /// model setup), so the request carries only the conversation and the wanted JSON shape.
+        /// Driver, model and effort come from the service configuration (one instance = one model setup),
+        /// so the request carries only the conversation and the wanted JSON shape.
         #[derive(Clone, Debug, Default)]
         pub struct CallRequestView<'a> {
             /// Field 1: `messages`
@@ -3567,20 +3476,12 @@ pub mod __buffa {
             pub driver: &'a str,
             /// Field 3: `model`
             pub model: &'a str,
-            /// Field 4: `effort`
-            pub effort: &'a str,
-            /// Field 5: `temperature`
-            pub temperature: ::core::option::Option<f64>,
-            /// Field 6: `duration_ms`
+            /// Field 4: `duration_ms`
             pub duration_ms: u64,
-            /// Field 7: `input_tokens`
+            /// Field 5: `input_tokens`
             pub input_tokens: u64,
-            /// Field 8: `output_tokens`
+            /// Field 6: `output_tokens`
             pub output_tokens: u64,
-            /// Driver-specific data, e.g. cost_usd, session_id.
-            ///
-            /// Field 9: `attributes` (map)
-            pub attributes: ::buffa::MapView<'a, &'a str, &'a str>,
             pub __buffa_unknown_fields: ::buffa::UnknownFieldsView<'a>,
         }
         impl<'a> ::buffa::MessageView<'a> for CallMetadataView<'a> {
@@ -3643,82 +3544,23 @@ pub mod __buffa {
                     4u32 => {
                         ::buffa::encoding::check_wire_type(
                             tag,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )?;
-                        view.effort = ::buffa::types::borrow_str(&mut cur)?;
-                    }
-                    5u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::Fixed64,
-                        )?;
-                        view.temperature = Some(
-                            ::buffa::types::decode_double(&mut cur)?,
-                        );
-                    }
-                    6u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
                             ::buffa::encoding::WireType::Varint,
                         )?;
                         view.duration_ms = ::buffa::types::decode_uint64(&mut cur)?;
                     }
-                    7u32 => {
+                    5u32 => {
                         ::buffa::encoding::check_wire_type(
                             tag,
                             ::buffa::encoding::WireType::Varint,
                         )?;
                         view.input_tokens = ::buffa::types::decode_uint64(&mut cur)?;
                     }
-                    8u32 => {
+                    6u32 => {
                         ::buffa::encoding::check_wire_type(
                             tag,
                             ::buffa::encoding::WireType::Varint,
                         )?;
                         view.output_tokens = ::buffa::types::decode_uint64(&mut cur)?;
-                    }
-                    9u32 => {
-                        ::buffa::encoding::check_wire_type(
-                            tag,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )?;
-                        let entry_bytes = ::buffa::types::borrow_bytes(&mut cur)?;
-                        let mut entry_cur: &'a [u8] = entry_bytes;
-                        let mut key = "";
-                        let mut val = "";
-                        ctx.register_element_memory(
-                            ::buffa::__private::element_footprint(&key)
-                                + ::buffa::__private::element_footprint(&val),
-                        )?;
-                        while !entry_cur.is_empty() {
-                            let entry_tag = ::buffa::encoding::Tag::decode(
-                                &mut entry_cur,
-                            )?;
-                            match entry_tag.field_number() {
-                                1 => {
-                                    ::buffa::encoding::check_wire_type(
-                                        entry_tag,
-                                        ::buffa::encoding::WireType::LengthDelimited,
-                                    )?;
-                                    key = ::buffa::types::borrow_str(&mut entry_cur)?;
-                                }
-                                2 => {
-                                    ::buffa::encoding::check_wire_type(
-                                        entry_tag,
-                                        ::buffa::encoding::WireType::LengthDelimited,
-                                    )?;
-                                    val = ::buffa::types::borrow_str(&mut entry_cur)?;
-                                }
-                                _ => {
-                                    ::buffa::encoding::skip_field_depth(
-                                        entry_tag,
-                                        &mut entry_cur,
-                                        ctx.depth(),
-                                    )?;
-                                }
-                            }
-                        }
-                        view.attributes.push(key, val);
                     }
                     _ => {
                         ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
@@ -3752,16 +3594,9 @@ pub mod __buffa {
                     caller_id: self.caller_id.to_string(),
                     driver: self.driver.to_string(),
                     model: self.model.to_string(),
-                    effort: self.effort.to_string(),
-                    temperature: self.temperature,
                     duration_ms: self.duration_ms,
                     input_tokens: self.input_tokens,
                     output_tokens: self.output_tokens,
-                    attributes: self
-                        .attributes
-                        .iter()
-                        .map(|(k, v)| (k.to_string(), v.to_string()))
-                        .collect(),
                     __buffa_unknown_fields: self
                         .__buffa_unknown_fields
                         .to_owned()?
@@ -3790,14 +3625,6 @@ pub mod __buffa {
                     size
                         += 1u64 + ::buffa::types::string_encoded_len(&self.model) as u64;
                 }
-                if !self.effort.is_empty() {
-                    size
-                        += 1u64
-                            + ::buffa::types::string_encoded_len(&self.effort) as u64;
-                }
-                if self.temperature.is_some() {
-                    size += 1u64 + ::buffa::types::FIXED64_ENCODED_LEN as u64;
-                }
                 if self.duration_ms != 0u64 {
                     size
                         += 1u64
@@ -3815,15 +3642,6 @@ pub mod __buffa {
                         += 1u64
                             + ::buffa::types::uint64_encoded_len(self.output_tokens)
                                 as u64;
-                }
-                #[allow(clippy::for_kv_map)]
-                for (k, v) in &self.attributes {
-                    let entry_size: u64 = 1u64
-                        + ::buffa::types::string_encoded_len(k) as u64 + 1u64
-                        + ::buffa::types::string_encoded_len(v) as u64;
-                    size
-                        += 1u64 + ::buffa::encoding::varint_len(entry_size) as u64
-                            + entry_size;
                 }
                 size += self.__buffa_unknown_fields.encoded_len() as u64;
                 ::buffa::saturate_size(size)
@@ -3845,43 +3663,14 @@ pub mod __buffa {
                 if !self.model.is_empty() {
                     ::buffa::types::put_string_field(3u32, &self.model, buf);
                 }
-                if !self.effort.is_empty() {
-                    ::buffa::types::put_string_field(4u32, &self.effort, buf);
-                }
-                if let Some(v) = self.temperature {
-                    ::buffa::types::put_double_field(5u32, v, buf);
-                }
                 if self.duration_ms != 0u64 {
-                    ::buffa::types::put_uint64_field(6u32, self.duration_ms, buf);
+                    ::buffa::types::put_uint64_field(4u32, self.duration_ms, buf);
                 }
                 if self.input_tokens != 0u64 {
-                    ::buffa::types::put_uint64_field(7u32, self.input_tokens, buf);
+                    ::buffa::types::put_uint64_field(5u32, self.input_tokens, buf);
                 }
                 if self.output_tokens != 0u64 {
-                    ::buffa::types::put_uint64_field(8u32, self.output_tokens, buf);
-                }
-                for (k, v) in &self.attributes {
-                    let entry_size: u64 = 1u64
-                        + ::buffa::types::string_encoded_len(k) as u64 + 1u64
-                        + ::buffa::types::string_encoded_len(v) as u64;
-                    ::buffa::encoding::Tag::new(
-                            9u32,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )
-                        .encode(buf);
-                    ::buffa::encoding::encode_varint(entry_size, buf);
-                    ::buffa::encoding::Tag::new(
-                            1u32,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )
-                        .encode(buf);
-                    ::buffa::types::encode_string(k, buf);
-                    ::buffa::encoding::Tag::new(
-                            2u32,
-                            ::buffa::encoding::WireType::LengthDelimited,
-                        )
-                        .encode(buf);
-                    ::buffa::types::encode_string(v, buf);
+                    ::buffa::types::put_uint64_field(6u32, self.output_tokens, buf);
                 }
                 self.__buffa_unknown_fields.write_to(buf);
             }
@@ -3913,16 +3702,6 @@ pub mod __buffa {
                 if !::buffa::json_helpers::skip_if::is_empty_str(self.model) {
                     __map.serialize_entry("model", self.model)?;
                 }
-                if !::buffa::json_helpers::skip_if::is_empty_str(self.effort) {
-                    __map.serialize_entry("effort", self.effort)?;
-                }
-                if let ::core::option::Option::Some(__v) = self.temperature {
-                    __map
-                        .serialize_entry(
-                            "temperature",
-                            &::buffa::json_helpers::ProtoJson(&__v),
-                        )?;
-                }
                 if !::buffa::json_helpers::skip_if::is_zero_u64(&self.duration_ms) {
                     __map
                         .serialize_entry(
@@ -3943,26 +3722,6 @@ pub mod __buffa {
                             "outputTokens",
                             &::buffa::json_helpers::ProtoJson(&self.output_tokens),
                         )?;
-                }
-                if !self.attributes.is_empty() {
-                    struct _WM<'__a, '__x>(
-                        &'__x ::buffa::MapView<'__x, &'__a str, &'__a str>,
-                    );
-                    impl<'__a> ::serde::Serialize for _WM<'__a, '_> {
-                        fn serialize<__S: ::serde::Serializer>(
-                            &self,
-                            __s: __S,
-                        ) -> ::core::result::Result<__S::Ok, __S::Error> {
-                            use ::serde::ser::SerializeMap as _;
-                            let mut __m = __s
-                                .serialize_map(::core::option::Option::Some(self.0.len()))?;
-                            for (k, v) in self.0.iter_unique() {
-                                __m.serialize_entry(k, v)?;
-                            }
-                            __m.end()
-                        }
-                    }
-                    __map.serialize_entry("attributes", &_WM(&self.attributes))?;
                 }
                 __map.end()
             }
@@ -4072,37 +3831,20 @@ pub mod __buffa {
             pub fn model(&self) -> &'_ str {
                 self.0.reborrow().model
             }
-            /// Field 4: `effort`
-            #[must_use]
-            pub fn effort(&self) -> &'_ str {
-                self.0.reborrow().effort
-            }
-            /// Field 5: `temperature`
-            #[must_use]
-            pub fn temperature(&self) -> ::core::option::Option<f64> {
-                self.0.reborrow().temperature
-            }
-            /// Field 6: `duration_ms`
+            /// Field 4: `duration_ms`
             #[must_use]
             pub fn duration_ms(&self) -> u64 {
                 self.0.reborrow().duration_ms
             }
-            /// Field 7: `input_tokens`
+            /// Field 5: `input_tokens`
             #[must_use]
             pub fn input_tokens(&self) -> u64 {
                 self.0.reborrow().input_tokens
             }
-            /// Field 8: `output_tokens`
+            /// Field 6: `output_tokens`
             #[must_use]
             pub fn output_tokens(&self) -> u64 {
                 self.0.reborrow().output_tokens
-            }
-            /// Driver-specific data, e.g. cost_usd, session_id.
-            ///
-            /// Field 9: `attributes` (map)
-            #[must_use]
-            pub fn attributes(&self) -> &::buffa::MapView<'_, &'_ str, &'_ str> {
-                &self.0.reborrow().attributes
             }
         }
         impl ::core::convert::From<::buffa::OwnedView<CallMetadataView<'static>>>

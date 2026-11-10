@@ -106,7 +106,7 @@ async fn image_reaches_the_provider_as_a_data_url() {
     req.messages[0].images.push(image);
     collect(&host.nats_deps().await, req).await.unwrap();
     let sent = seen.request.lock().expect("lock").clone();
-    assert!(sent.contains(r#""image_url":"data:image/png;base64,AQID""#), "request was: {sent}");
+    assert!(sent.contains(r#""url":"data:image/png;base64,AQID""#), "request was: {sent}");
 }
 
 /// The client's deadline travels over NATS; the llm_caller host ends the stream when it passes and drops

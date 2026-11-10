@@ -25,13 +25,16 @@ pub struct Deps {
     client_config: ClientConfig,
     logs: Arc<dyn LogBackend>,
     metrics: Arc<dyn MetricsBackend>,
+    /// Test values that win over the process environment (see [`Deps::with_env`]).
+    env: Arc<HashMap<String, String>>,
 }
 
 impl Deps {
     /// Logs and metrics are dropped until [`Deps::with_logs`] / [`Deps::with_metrics`] set them.
     pub fn new(channel: Channel, client_config: ClientConfig) -> Self {
         let channels = Arc::new(SameChannel(channel.clone()));
-        Self { channel, channels, client_config, logs: Arc::new(NoopLogs), metrics: Arc::new(NoopMetrics) }
+        let (logs, metrics) = (Arc::new(NoopLogs), Arc::new(NoopMetrics));
+        Self { channel, channels, client_config, logs, metrics, env: Arc::default() }
     }
 
     /// Use `factory` for [`Deps::channel_to`] (platform's NATS factory, or a test one).
@@ -49,6 +52,16 @@ impl Deps {
     /// Send metrics to `backend` (platform's `OtelMetrics`, or `testing::MemoryMetrics`).
     pub fn with_metrics(mut self, backend: impl MetricsBackend + 'static) -> Self {
         self.metrics = Arc::new(backend);
+        self
+    }
+
+    /// Settings for tests, instead of the process environment: `.with_env([("SENSOR_KIND", "camera")])`.
+    pub fn with_env<'a>(mut self, values: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+        let mut env = (*self.env).clone();
+        for (key, value) in values {
+            env.insert(key.to_string(), value.to_string());
+        }
+        self.env = Arc::new(env);
         self
     }
 
@@ -108,9 +121,37 @@ impl Deps {
         self.client_config.clone()
     }
 
-    /// A configuration value (from the environment), e.g. `deps.env("GREETING_PREFIX")`.
+    /// A configuration value (from the environment), e.g. `deps.env("GREETING_PREFIX")`. Blank = not set.
     pub fn env(&self, key: &str) -> Option<String> {
-        std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+        let value = match self.env.get(key) {
+            Some(value) => Some(value.clone()),
+            None => std::env::var(key).ok(),
+        };
+        value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    }
+
+    /// The setting `key` read by `parse`, or `default` when it is not set (≈ binding an options class).
+    /// Call it while building a module: a bad value stops the host with `KEY="x" is invalid, expected ...`.
+    ///
+    /// ```ignore
+    /// let warmup = deps.setting("CAMERA_WARMUP", 5, "0..100", |v| v.parse().ok().filter(|n| *n <= 100));
+    /// ```
+    pub fn setting<T>(&self, key: &str, default: T, expected: &str, parse: impl Fn(&str) -> Option<T>) -> T {
+        let Some(value) = self.env(key) else {
+            return default;
+        };
+        match parse(&value) {
+            Some(parsed) => parsed,
+            None => panic!("{key}={value:?} is invalid, expected {expected}"),
+        }
+    }
+
+    /// The setting `key`, which must be set: a missing one stops the host with `KEY is not set, expected ...`.
+    pub fn required(&self, key: &str, expected: &str) -> String {
+        match self.env(key) {
+            Some(value) => value,
+            None => panic!("{key} is not set, expected {expected}"),
+        }
     }
 }
 

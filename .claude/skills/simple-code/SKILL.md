@@ -14,8 +14,9 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
   `excessive_nesting`) and oxlint enforce the hard limits; aim lower.
 - **Early return** instead of nested `if`/`match`: `let Some(x) = y else { return ...; };`
 - **One idea per function.** Name it after what it returns or does: `parse_connect_error`, not `process`.
-- **Pure core, thin edges.** Rules go in `domain.rs`.
-  Handlers only translate proto ⇄ domain.
+- **A handler reads as a story.** All of a service's logic lives in `handler.rs`, top to bottom: the RPC method tells
+  the story in a few steps, the helpers below it do one step each. Pure rules are plain functions (unit tested).
+- **Proto messages are the model.** No domain copies of proto types, no mapping layers.
 - **≤ 4 parameters.** More? Pass a named struct.
 - **Line width 120** (`rustfmt.toml`, `web/.oxfmtrc.json`); the formatter decides wrapping — don't fight it.
 
@@ -36,12 +37,12 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
 
 | Where | Use | Why |
 |---|---|---|
-| service domain (`services/*`) | one small `enum` per service (`GreetError`) with `Display` | the handler must map each case to a Connect code (`invalid_argument`, `not_found`…) with a `match` the compiler checks |
+| services (`services/*`) | `connectrpc::ConnectError` directly: `ConnectError::invalid_argument("name is empty")` | ≈ throwing `RpcException(StatusCode.InvalidArgument)`: the code *is* the contract, no enum to map |
 | infrastructure + apps (`platform`, `apps/*`, `tests/e2e`) | `anyhow::Result<T>`, `bail!("...")`, `.context("doing X")` | errors are only logged or returned from `main`; nobody matches on them |
 
 - Never `anyhow` in a service crate, and never `Box<dyn Error>` anywhere.
-- Add context where the failure happens: `.with_context(|| format!("connect to NATS at {url}"))`.
-- In `handler.rs`, one function `to_connect_error(e: XError) -> ConnectError` does the mapping.
+- `?` ≈ rethrow: a downstream `ConnectError` passes through unchanged unless the story needs another code.
+- Missing or bad configuration is not an RPC error: `deps.setting(..)` / `deps.required(..)` stop the host at startup.
 
 ## TypeScript
 
@@ -61,32 +62,43 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
 - One behaviour per test, named as a sentence: `empty_name_is_invalid_argument`.
 - Arrange / act / assert, with small helper functions (`client()`, `request("Jane")`) instead of setup frameworks.
 
-## Domain: interface + class (C# style)
+## Taxonomy: interfaces only for real hierarchies
 
-The domain is a **trait (interface) + struct (class)**, injected into the handler — not free functions.
+A trait (interface) exists only where there are **several real implementations**, chosen by configuration:
+
+| Interface | Implementations |
+|---|---|
+| `sensor::drivers::FrameSource` | `Screen`, `Camera` (+ `FakeSource` for tests) |
+| `llm_caller::drivers::LlmDriver` | `CliDriver`, `HttpDriver` |
+| `llm_caller::drivers::CliFlavor` (≈ abstract base class hooks) | `ClaudeCli`, `AgyCli` |
+
+- Naming: interface = the role (`FrameSource`), class = what it is (`Camera`). No `I` prefix.
+- Inject as `Arc<dyn Trait>` (≈ a reference to an interface). Construct only in `lib.rs::module()`.
+- One implementation? No trait: a plain struct, or just a function.
+- Tests replace a dependency by injecting a fake implementation (`module_with(..)`) or, for another service, by
+  running a fake service as an in-process instance (`Deps::in_process_instances`).
+
+## Kernel helpers (use them, don't re-invent them)
 
 ```rust
-// domain.rs
-pub trait Greeter: Send + Sync {                       // ≈ interface IGreeter
-    fn greet(&self, name: &str) -> Result<String, GreetError>;
+// lib.rs — the composition root
+pub fn module(deps: &Deps) -> Arc<dyn Module> {
+    kernel::module("greet", GreetHandler::new(deps))          // a handler as a host module
 }
 
-pub struct HelloGreeter { max_name_chars: usize }     // ≈ class Greeter : IGreeter
-impl HelloGreeter { pub fn new() -> Self { ... } }    // ≈ constructor
-impl Greeter for HelloGreeter { fn greet(...) { ... } }
+// config.rs — settings; a bad or missing value stops the host with a clear message
+let format = deps.setting("SENSOR_FORMAT", ImageFormat::Png, "png or jpeg", parse_format);
+let model = deps.required("LLM_CALLER_MODEL", "a model name");
 
-// handler.rs — depends on the interface
-pub struct GreetHandler { greeter: Arc<dyn Greeter>, log: Logger, metrics: Metrics }
+// handler.rs — a server stream as a plain async function (≈ `IAsyncEnumerable` with `yield return`)
+Response::ok(stream_from(move |tx| async move {
+    tx.send(progress("started"));
+    match work().await { Ok(result) => tx.send(result), Err(error) => tx.fail(error) }
+}))
 
-// lib.rs::module() — the composition root: the only place that picks implementations
-let handler = GreetHandler::new(deps, Arc::new(HelloGreeter::new()));
+// another service instance, by id, through its generated client
+let client = SensorServiceClient::new(deps.channel_to("screen-1"), deps.client_config());
 ```
-
-- Naming: interface = the role (`Greeter`, `OrderRepository`), class = what it is (`HelloGreeter`, `PostgresOrderRepository`). No `I` prefix.
-- Inject as `Arc<dyn Trait>` (≈ a reference to an interface). Construct only in `module()`.
-- Configuration goes in the struct's fields via `new()` / `with_...()` constructors, not globals.
-- Keep traits small (1–3 methods, one role). The domain struct never logs or measures; the handler does.
-- Unit-test the class directly (`HelloGreeter::new().greet("Jane")`); pass a fake `impl Greeter` where the handler logic needs isolating.
 
 ## Logging & metrics (injected, never static)
 
@@ -119,7 +131,7 @@ self.metrics.set("open_carts", 42.0, []);                 // gauge
 - Metric names are short (`placed`); the meter adds `svc.`. Never use a name with two kinds.
 - Metric tags must have few values (transport, reason, status). **Never** ids, names, emails.
 - Don't add per-RPC duration/count/error metrics: platform records them for every call.
-- Log/measure in the handler (or an application `service.rs`); `domain.rs` stays pure.
+- Don't log failures either: the platform logs every failed RPC with its code and message. Log business facts only.
 - Tests: `Deps::in_process(&[]).with_logs(logs.clone()).with_metrics(metrics.clone())` with
   `kernel::testing::{MemoryLogs, MemoryMetrics}`, then `logs.find("order placed")`, `metrics.sum("orders.placed")`.
 
@@ -133,7 +145,11 @@ self.metrics.set("open_carts", 42.0, []);                 // gauge
 | Rust | C# | TS |
 |---|---|---|
 | `trait` | `interface` | `interface` |
-| `Arc<dyn Greeter>` field | `IGreeter` constructor parameter | `greeter: Greeter` field |
+| `Arc<dyn FrameSource>` field | `IFrameSource` constructor parameter | `source: FrameSource` field |
+| `ConnectError::not_found(..)` | `throw new RpcException(StatusCode.NotFound, ..)` | `throw new ConnectError(.., Code.NotFound)` |
+| `tokio::task::spawn_blocking` | `Task.Run` | worker thread |
+| `join_all(futures)` / `tokio::select!` | `Task.WhenAll` / `Task.WhenAny` | `Promise.all` / `Promise.race` |
+| `impl Drop` | `IDisposable` | `using` / `finally` |
 | `struct` + `impl` | `class` | `class` / object type |
 | `enum` with data | sealed record hierarchy | discriminated union |
 | `Result<T, E>` + `?` | exception / `TryX` pattern | `throw` / result type |

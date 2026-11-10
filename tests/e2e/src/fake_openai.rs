@@ -1,4 +1,4 @@
-//! A fake OpenAI Responses API server for e2e tests: hosts run the `openai` llm_caller driver against it,
+//! A fake OpenAI chat-completions server for e2e tests: hosts run the `openai` llm_caller driver against it,
 //! so no API key or internet is needed. It streams a JSON answer in pieces with pauses (so clients see
 //! progress), or with `hang` never finishes and notes when the client hangs up (to prove cancellation).
 
@@ -18,7 +18,7 @@ pub struct Seen {
     pub hung_up: Arc<Mutex<bool>>,
 }
 
-/// Answer every request with a streamed Responses API reply (or, with `hang`, never finish);
+/// Answer every request with a streamed chat-completions reply (or, with `hang`, never finish);
 /// return the base URL.
 pub async fn fake_openai(hang: bool, seen: Seen) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake server");
@@ -41,12 +41,13 @@ async fn answer(mut socket: TcpStream, hang: bool, seen: Seen) {
     let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n";
     let _ = socket.write_all(head.as_bytes()).await;
     for piece in PIECES {
-        let event = serde_event("response.output_text.delta", &format!("\"delta\":{piece:?}"));
-        let _ = socket.write_all(event.as_bytes()).await;
+        let chunk = format!("{{\"choices\":[{{\"delta\":{{\"content\":{piece:?}}}}}]}}");
+        let _ = socket.write_all(sse(&chunk).as_bytes()).await;
         tokio::time::sleep(Duration::from_millis(300)).await; // > the service's progress interval
     }
-    let usage = "\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":9}}";
-    let _ = socket.write_all(serde_event("response.completed", usage).as_bytes()).await;
+    let usage = r#"{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":9}}"#;
+    let _ = socket.write_all(sse(usage).as_bytes()).await;
+    let _ = socket.write_all(sse("[DONE]").as_bytes()).await;
 }
 
 /// Send the response head, then nothing: the call only ends when the client goes away.
@@ -62,8 +63,8 @@ async fn wait_for_hang_up(mut socket: TcpStream, seen: Seen) {
     *seen.hung_up.lock().expect("lock") = true;
 }
 
-fn serde_event(kind: &str, fields: &str) -> String {
-    format!("data: {{\"type\":\"{kind}\",{fields}}}\n\n")
+fn sse(data: &str) -> String {
+    format!("data: {data}\n\n")
 }
 
 /// Read until the headers and the `content-length` body are in; return all of it.

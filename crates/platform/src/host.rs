@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::{Context, bail};
 use connectrpc::client::{ClientConfig, HttpClient};
 use futures::future::try_join_all;
-use kernel::{Channel, ChannelFactory, Deps, Module};
+use kernel::{Channel, ChannelFactory, Deps, Module, ModuleFactory};
 
 use crate::adapter::{Adapter, HttpAdapter, NatsAdapter};
 use crate::addr_from_env;
@@ -51,18 +51,22 @@ async fn adapters_from_env() -> anyhow::Result<Vec<Box<dyn Adapter>>> {
     Ok(adapters)
 }
 
-/// Keep the modules named in `wanted` (comma-separated, e.g. from `SERVICES`).
-/// Empty or `all` keeps every module. Unknown names are an error that lists the known ones.
-pub fn select_modules(all: Modules, wanted: &str) -> anyhow::Result<Modules> {
+/// Build the services named in `wanted` (comma-separated, from `SERVICES`), and only those: a service
+/// whose settings are missing never stops a host that doesn't run it. Unknown names list the known ones.
+pub fn build_modules(all: &[(&'static str, ModuleFactory)], wanted: &str, deps: &Deps) -> anyhow::Result<Modules> {
+    let known: Vec<&str> = all.iter().map(|(name, _)| *name).collect();
     let wanted: Vec<&str> = wanted.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-    if wanted.is_empty() || wanted == ["all"] {
-        return Ok(all);
+    if wanted.is_empty() {
+        bail!("set SERVICES to a comma list of: {}", known.join(", "));
     }
-    let known: Vec<&str> = all.iter().map(|m| m.name()).collect();
-    if let Some(unknown) = wanted.iter().find(|name| !known.contains(name)) {
-        bail!("unknown service '{unknown}'; available: {}", known.join(", "));
+    let mut modules = Vec::new();
+    for name in wanted {
+        let Some((_, build)) = all.iter().find(|(known, _)| *known == name) else {
+            bail!("unknown service '{name}'; available: {}", known.join(", "));
+        };
+        modules.push(build(deps));
     }
-    Ok(all.into_iter().filter(|m| wanted.contains(&m.name())).collect())
+    Ok(modules)
 }
 
 /// Deps for services: logs → `tracing` (JSON stdout + OTLP), metrics → OTel, and calls to

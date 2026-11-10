@@ -4,8 +4,8 @@ Exposes `kernel::Module`s to the world and wires telemetry. **Knows nothing abou
 proto** — if you need a service name or message type here, the design is wrong.
 
 ```
-src/lib.rs          entry points: init_telemetry, run, select_modules, deps_from_env, traced_service
-src/host.rs         run modules on adapters chosen by env (ADDR, HTTP_DISABLED, NATS_URL), SERVICES selection
+src/lib.rs          entry points: init_telemetry, run, build_modules, deps_from_env, traced_service
+src/host.rs         run modules on adapters chosen by env (ADDR, HTTP_DISABLED, NATS_URL), build_modules: build only the services in SERVICES
 src/adapter.rs      trait Adapter + HttpAdapter (all modules, one port) + NatsAdapter (one micro service per module)
 src/http_server.rs  axum server + CORS (CORS_ORIGINS)
 src/nats/           wire.rs (pure naming/status rules) · server.rs (micro endpoints) · client.rs (NatsTransport)
