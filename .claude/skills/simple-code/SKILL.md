@@ -14,8 +14,8 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
   `excessive_nesting`) and oxlint enforce the hard limits; aim lower.
 - **Early return** instead of nested `if`/`match`: `let Some(x) = y else { return ...; };`
 - **One idea per function.** Name it after what it returns or does: `parse_connect_error`, not `process`.
-- **Pure core, thin edges.** Rules go in `domain.rs` as plain functions (no async, no IO, no proto
-  types). Handlers only translate proto ⇄ domain.
+- **Pure core, thin edges.** Rules go in `domain.rs`.
+  Handlers only translate proto ⇄ domain.
 - **≤ 4 parameters.** More? Pass a named struct.
 - **Line width 120** (`rustfmt.toml`, `web/.oxfmtrc.json`); the formatter decides wrapping — don't fight it.
 
@@ -27,7 +27,6 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
 | custom macros, `macro_rules!` | functions |
 | explicit lifetimes (`'a`) in your own types | owned data (`String`, `.clone()` of small things) |
 | generic functions with trait bounds | concrete types (`Channel`, `Arc<dyn Module>`) |
-| new traits "for flexibility" | a struct or a function; add a trait when a 2nd impl exists |
 | tuples in public APIs `(String, u16, bool)` | a named struct |
 | `unwrap()` in non-test code | `?`, or `expect("why this can't fail")` |
 | `impl Trait` in return position across modules | a named type or type alias |
@@ -61,6 +60,33 @@ without knowing advanced Rust. Optimize for **reading**, not for cleverness or f
   and `foo_tests.rs` (same folder) starts with `use super::*;`, so it can test private functions.
 - One behaviour per test, named as a sentence: `empty_name_is_invalid_argument`.
 - Arrange / act / assert, with small helper functions (`client()`, `request("Jane")`) instead of setup frameworks.
+
+## Domain: interface + class (C# style)
+
+The domain is a **trait (interface) + struct (class)**, injected into the handler — not free functions.
+
+```rust
+// domain.rs
+pub trait Greeter: Send + Sync {                       // ≈ interface IGreeter
+    fn greet(&self, name: &str) -> Result<String, GreetError>;
+}
+
+pub struct HelloGreeter { max_name_chars: usize }     // ≈ class Greeter : IGreeter
+impl HelloGreeter { pub fn new() -> Self { ... } }    // ≈ constructor
+impl Greeter for HelloGreeter { fn greet(...) { ... } }
+
+// handler.rs — depends on the interface
+pub struct GreetHandler { greeter: Arc<dyn Greeter>, log: Logger, metrics: Metrics }
+
+// lib.rs::module() — the composition root: the only place that picks implementations
+let handler = GreetHandler::new(deps, Arc::new(HelloGreeter::new()));
+```
+
+- Naming: interface = the role (`Greeter`, `OrderRepository`), class = what it is (`HelloGreeter`, `PostgresOrderRepository`). No `I` prefix.
+- Inject as `Arc<dyn Trait>` (≈ a reference to an interface). Construct only in `module()`.
+- Configuration goes in the struct's fields via `new()` / `with_...()` constructors, not globals.
+- Keep traits small (1–3 methods, one role). The domain struct never logs or measures; the handler does.
+- Unit-test the class directly (`HelloGreeter::new().greet("Jane")`); pass a fake `impl Greeter` where the handler logic needs isolating.
 
 ## Logging & metrics (injected, never static)
 
@@ -107,6 +133,7 @@ self.metrics.set("open_carts", 42.0, []);                 // gauge
 | Rust | C# | TS |
 |---|---|---|
 | `trait` | `interface` | `interface` |
+| `Arc<dyn Greeter>` field | `IGreeter` constructor parameter | `greeter: Greeter` field |
 | `struct` + `impl` | `class` | `class` / object type |
 | `enum` with data | sealed record hierarchy | discriminated union |
 | `Result<T, E>` + `?` | exception / `TryX` pattern | `throw` / result type |

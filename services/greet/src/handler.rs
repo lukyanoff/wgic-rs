@@ -1,20 +1,23 @@
-//! Proto ⇄ domain. Keep this thin: decode, call the domain, log/measure, encode.
+//! Proto ⇄ domain. Keep this thin: decode, call the injected `Greeter`, log/measure, encode.
 
 use connectrpc::{ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult};
 use contracts::proto::greet::v1::{GreetRequest, GreetResponse, GreetService};
 use kernel::{Deps, Logger, Metrics, RequestContextExt, kv};
 
-use crate::domain::{self, GreetError};
+use std::sync::Arc;
 
-/// Logger and metrics are injected through `new` (like constructor injection in C#).
+use crate::domain::{GreetError, Greeter};
+
+/// Dependencies are injected through `new` (like constructor injection in C#).
 pub struct GreetHandler {
+    greeter: Arc<dyn Greeter>,
     log: Logger,
     metrics: Metrics,
 }
 
 impl GreetHandler {
-    pub fn new(deps: &Deps) -> Self {
-        Self { log: deps.logger("greet"), metrics: deps.metrics("greet") }
+    pub fn new(deps: &Deps, greeter: Arc<dyn Greeter>) -> Self {
+        Self { greeter, log: deps.logger("greet"), metrics: deps.metrics("greet") }
     }
 }
 
@@ -26,7 +29,7 @@ impl GreetService for GreetHandler {
         request: ServiceRequest<'_, GreetRequest>,
     ) -> ServiceResult<GreetResponse> {
         let transport = ctx.transport().name();
-        let greeting = match domain::greeting(request.name) {
+        let greeting = match self.greeter.greet(request.name) {
             Ok(greeting) => greeting,
             Err(error) => {
                 self.log.warn("greeting rejected", [kv("reason", reason(&error))]);
@@ -49,6 +52,6 @@ fn to_connect_error(error: GreetError) -> ConnectError {
 fn reason(error: &GreetError) -> &'static str {
     match error {
         GreetError::EmptyName => "empty_name",
-        GreetError::NameTooLong => "name_too_long",
+        GreetError::NameTooLong { .. } => "name_too_long",
     }
 }

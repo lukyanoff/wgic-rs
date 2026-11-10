@@ -10,11 +10,12 @@ Says hello. **Reference shape for every service** — copy it when adding one.
 - Metrics: `greet.greetings` {transport}, `greet.rejected` {reason} → Prometheus `greet_greetings_total`, `greet_rejected_total`
 
 ```
-src/lib.rs      module(&Deps) -> Arc<dyn Module>   (the only public item)
-src/domain.rs        pure rules                     (no async, no IO, no proto types)
+src/lib.rs      module(&Deps) -> Arc<dyn Module>   (the only public item; composition root: picks HelloGreeter)
+src/domain.rs        trait Greeter (interface) + struct HelloGreeter (impl) + GreetError
+                     (no async, no IO, no proto types)
 src/domain_tests.rs  unit tests for domain.rs
 src/handler.rs  generated trait impl: proto -> domain -> proto, domain error -> ConnectError;
-                Logger + Metrics injected in GreetHandler::new(deps)
+                Arc<dyn Greeter> + Logger + Metrics injected in GreetHandler::new(deps, greeter)
 tests/rpc.rs    integration: generated client over Deps::in_process (success + every error code,
                 logs/metrics checked with MemoryLogs/MemoryMetrics)
 ```

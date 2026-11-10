@@ -1,6 +1,6 @@
 //! Greet service: says hello.
 //!
-//! - `domain.rs`  — the rules (pure functions, unit tested)
+//! - `domain.rs`  — the rules: `Greeter` interface + `HelloGreeter` implementation (unit tested)
 //! - `handler.rs` — proto ⇄ domain + logs/metrics (implements the generated `GreetService` trait)
 //! - `module()`   — the only thing the host needs
 
@@ -12,12 +12,16 @@ use std::sync::Arc;
 use connectrpc::Router;
 use kernel::{Deps, Module};
 
+use domain::HelloGreeter;
 use handler::GreetHandler;
 
-/// Create the module. The handler takes its logger and metrics from `deps`; a service that
-/// calls others also keeps `deps.channel()` to build their generated clients.
+/// Create the module: this service's composition root, where implementations are chosen
+/// (≈ the `services.AddSingleton<IGreeter, Greeter>()` lines in C#).
+/// A service that calls others also keeps `deps.channel()` to build their generated clients.
 pub fn module(deps: &Deps) -> Arc<dyn Module> {
-    Arc::new(GreetModule { handler: Arc::new(GreetHandler::new(deps)) })
+    let greeter = Arc::new(HelloGreeter::new());
+    let handler = GreetHandler::new(deps, greeter);
+    Arc::new(GreetModule { handler: Arc::new(handler) })
 }
 
 struct GreetModule {

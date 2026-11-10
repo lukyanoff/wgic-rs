@@ -255,7 +255,7 @@ Services follow the Cognitive Boxes layout (see `CLAUDE.md`). Copy `services/gre
 
 1. Add `proto/foo/v1/foo.proto`, run `npm run gen`, and add a `pub mod foo` block in
    `crates/contracts/src/lib.rs`.
-2. Create `services/foo/` with the same files as `services/greet/`: `domain.rs` (rules),
+2. Create `services/foo/` with the same files as `services/greet/`: `domain.rs` (rules as a trait + struct, e.g. `Greeter` / `HelloGreeter`),
    `domain_tests.rs` (unit tests), `handler.rs` (implements the generated `FooService`), `lib.rs`
    (`pub fn module(&Deps) -> Arc<dyn Module>`), `tests/rpc.rs` (integration), `CLAUDE.md`.
 3. Register it: `foo = { path = "services/foo" }` in the root `[workspace.dependencies]`,
