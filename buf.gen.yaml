@@ -1,0 +1,12 @@
+version: v2
+plugins:
+  - remote: buf.build/anthropics/buffa
+    out: src/gen/buffa
+    opt:
+      - file_per_package=true
+      - json=true
+  - remote: buf.build/connectrpc/rust
+    out: src/gen/connect
+    opt:
+      - file_per_package
+      - buffa_module=crate::proto
