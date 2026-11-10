@@ -335,3 +335,54 @@ Cognitive Boxes: every box has a `CLAUDE.md` describing what it owns and what it
   `npm run gen`.
 - On this machine, port 8080 is used by a Podman container. Use
   `ADDR=127.0.0.1:8081`.
+
+
+  ---
+  How to run everything
+
+Once, after cloning:
+npm install                 # root: Buf CLI
+(cd web && npm install)     # playground
+npm run gen                 # generated code + web/public/descriptors.binpb
+
+Terminal 1: infrastructure
+podman compose up -d
+This starts NATS (:4222), the OTel collector (:4318), Jaeger, Prometheus and Grafana.
+
+Terminal 2: all services, over HTTP and NATS, with traces, logs and metrics exported
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_BSP_SCHEDULE_DELAY=200 \
+NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 \
+cargo run -p host
+- Only some services: add SERVICES=greet.
+- Extra instances (they share the load over NATS): run the same command in another terminal with HTTP_DISABLED=1 instead of ADDR=....
+
+Terminal 3: web playground
+cd web && npm run dev
+
+Call it
+curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' http://127.0.0.1:8081/greet.v1.GreetService/Greet
+podman compose run --rm nats-box nats req rpc.greet.v1.GreetService.Greet '{"name":"Jane"}'
+Or use the playground and pick the local 8081 or nats ws server.
+
+Where to look
+
+┌──────────────────────────────────────┬────────────────────────┐
+│                 What                 │          URL           │
+├──────────────────────────────────────┼────────────────────────┤
+│ Playground                           │ http://localhost:5173  │
+├──────────────────────────────────────┼────────────────────────┤
+│ Traces (Jaeger)                      │ http://localhost:16686 │
+├──────────────────────────────────────┼────────────────────────┤
+│ Dashboards (Grafana, "RPC overview") │ http://localhost:3000  │
+├──────────────────────────────────────┼────────────────────────┤
+│ Metrics (Prometheus)                 │ http://localhost:9090  │
+├──────────────────────────────────────┼────────────────────────┤
+│ NATS monitoring                      │ http://localhost:8222  │
+└──────────────────────────────────────┴────────────────────────┘
+
+Check everything (the infrastructure must be up for the e2e tests):
+scripts/verify.sh
+
+Stop everything
+- Ctrl+C the host and the playground.
+- Then run podman compose down.
