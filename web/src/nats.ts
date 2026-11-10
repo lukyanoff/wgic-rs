@@ -65,6 +65,22 @@ function errorResponse(status: number, code: string, message: string): Response 
   })
 }
 
+/**
+ * A streaming client ignores the body of a non-200 response and reports only "HTTP 503". In the Connect
+ * streaming protocol an error travels as the end-of-stream frame (flag 0x02, JSON `{"error":…}`) of a 200
+ * response, so turn an error response into that. A 200 response is returned as is.
+ */
+async function asStreamError(res: Response, contentType: string): Promise<Response> {
+  if (res.status === 200) return res
+  const { code, message } = (await res.json()) as { code: string; message: string }
+  const json = new TextEncoder().encode(JSON.stringify({ error: { code, message } }))
+  const frame = new Uint8Array(5 + json.length)
+  frame[0] = 0x02
+  new DataView(frame.buffer).setUint32(1, json.length)
+  frame.set(json, 5)
+  return new Response(frame, { status: 200, headers: { 'content-type': contentType, 'x-nats-error': code } })
+}
+
 function replyToResponse(msg: Msg): Response {
   const h = msg.headers
   const errCode = h?.get('Nats-Service-Error-Code')
@@ -115,8 +131,9 @@ export function natsFetch(url: string, prefix: string): typeof fetch {
     try {
       const streaming = isStreaming(req.headers.get('content-type'))
       const call = { url, subject, body, hdrs, timeout, streaming, signal: init?.signal ?? undefined }
-      const res = await natsRequestResponse(call)
+      let res = await natsRequestResponse(call)
       if (res.status !== 200) failure = `${res.status} ${res.headers.get('x-nats-error') ?? ''}`.trim()
+      if (streaming) res = await asStreamError(res, req.headers.get('content-type') ?? '')
       span.setAttribute('messaging.nats.reply_status', res.status)
       return res
     } catch (e) {
@@ -142,7 +159,11 @@ type NatsCall = {
 async function streamResponse(nc: NatsConnection, call: StreamCall): Promise<Response> {
   const { first, body } = await natsStream(nc, call)
   if (first.headers?.code === 503) {
-    return errorResponse(503, 'unavailable', `no NATS responders for ${call.subject}`)
+    return errorResponse(
+      503,
+      'unavailable',
+      `no NATS responders for ${call.subject}: no running service listens there; pick the server whose prefix runs it`,
+    )
   }
   if (first.headers?.get('Nats-Service-Error-Code')) return replyToResponse(first)
   const out = new Headers()
@@ -183,7 +204,11 @@ async function natsRequestResponse({
     if (e instanceof DOMException && e.name === 'AbortError') throw e
     const cause = e instanceof RequestError ? e.cause : e
     if (cause instanceof NoRespondersError || (e instanceof RequestError && e.isNoResponders())) {
-      return errorResponse(503, 'unavailable', `no NATS responders for ${subject}`)
+      return errorResponse(
+        503,
+        'unavailable',
+        `no NATS responders for ${subject}: no running service listens there; pick the server whose prefix runs it`,
+      )
     }
     if (cause instanceof TimeoutError || e instanceof TimeoutError) {
       return errorResponse(504, 'deadline_exceeded', `NATS request to ${subject} timed out`)

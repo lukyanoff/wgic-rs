@@ -5,10 +5,7 @@ use crate::config::DriverKind;
 use crate::domain::{ChatMessage, Role};
 
 fn request(schema: Option<&str>) -> LlmRequest {
-    let messages = vec![
-        ChatMessage { role: Role::System, content: "Answer in JSON.".into() },
-        ChatMessage { role: Role::User, content: "hi".into() },
-    ];
+    let messages = vec![ChatMessage::new(Role::System, "Answer in JSON."), ChatMessage::new(Role::User, "hi")];
     LlmRequest { messages, json_schema: schema.map(String::from) }
 }
 
@@ -67,4 +64,27 @@ fn result_without_structured_output_uses_response() {
 fn failed_status_is_failed() {
     let line = r#"{"event":"result","result":{"status":"ERROR","error":"quota exceeded"}}"#;
     assert_eq!(AgyCli.parse_line(line), LineEvent::Done(Err(LlmError::Failed("agy: ERROR quota exceeded".into()))));
+}
+
+fn with_image(mime_type: &str) -> LlmRequest {
+    let mut req = request(None);
+    req.messages[1].images.push(crate::domain::Image { data: vec![7], mime_type: mime_type.into() });
+    req
+}
+
+#[test]
+fn images_become_files_named_in_the_prompt() {
+    let req = with_image("image/jpeg");
+    assert_eq!(AgyCli.files(&req), vec![("image-1.jpg".to_string(), vec![7])]);
+    let settings = LlmSettings::new("x", crate::config::DriverKind::AgyCli, "m");
+    let prompt = AgyCli.args(&settings, &req).last().cloned().expect("prompt");
+    assert!(prompt.contains("the files image-1.jpg in the current folder"), "{prompt}");
+}
+
+#[test]
+fn no_images_no_files_and_no_note() {
+    let req = request(None);
+    assert!(AgyCli.files(&req).is_empty());
+    let settings = LlmSettings::new("x", crate::config::DriverKind::AgyCli, "m");
+    assert!(!AgyCli.args(&settings, &req).concat().contains("attached images"));
 }

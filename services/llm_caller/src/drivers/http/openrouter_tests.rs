@@ -5,10 +5,7 @@ use crate::config::DriverKind;
 use crate::domain::{ChatMessage, Role};
 
 fn request(schema: Option<&str>) -> LlmRequest {
-    let messages = vec![
-        ChatMessage { role: Role::System, content: "JSON only".into() },
-        ChatMessage { role: Role::User, content: "hi".into() },
-    ];
+    let messages = vec![ChatMessage::new(Role::System, "JSON only"), ChatMessage::new(Role::User, "hi")];
     LlmRequest { messages, json_schema: schema.map(String::from) }
 }
 
@@ -50,4 +47,16 @@ fn error_chunk_is_failed() {
 #[test]
 fn empty_chunks_are_ignored() {
     assert_eq!(event(r#"{"choices":[{"delta":{"role":"assistant"}}]}"#), SseEvent::Ignore);
+}
+
+#[test]
+fn image_becomes_an_image_url_part() {
+    let mut req = request(None);
+    req.messages[1].images.push(crate::domain::Image { data: vec![1, 2, 3], mime_type: "image/jpeg".into() });
+    let settings = LlmSettings::new("x", DriverKind::OpenRouter, "m");
+    let messages = &OpenRouter.body(&settings, &req)["messages"];
+    assert_eq!(messages[0]["content"], json!("JSON only"), "text-only messages stay a string");
+    let content = &messages[1]["content"];
+    assert_eq!(content[0], json!({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AQID"}}));
+    assert_eq!(content[1], json!({"type": "text", "text": "hi"}));
 }

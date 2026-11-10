@@ -1,11 +1,17 @@
 //! `claude -p` (Claude Code CLI) as an LLM caller.
 //!
+//! Input (`--input-format stream-json`): one line on stdin,
+//! `{"type":"user","message":{"role":"user","content":[{"type":"image",…}, {"type":"text","text":"…"}]}}`,
+//! so images travel as base64 blocks next to the prompt.
+//!
 //! Output (`--output-format stream-json --verbose --include-partial-messages`), one JSON per line:
 //! - `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"…"}}}`
 //!   (also `thinking_delta`, and `input_json_delta` while it fills a `--json-schema` answer)
 //! - `{"type":"result","is_error":false,"result":"…","structured_output":{…},"usage":{…},"total_cost_usd":…}`
 
-use serde_json::Value;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use serde_json::{Value, json};
 
 use super::base::{CliFlavor, LineEvent, system_prompt, transcript};
 use crate::config::LlmSettings;
@@ -19,9 +25,9 @@ impl CliFlavor for ClaudeCli {
     }
 
     fn args(&self, settings: &LlmSettings, request: &LlmRequest) -> Vec<String> {
-        let mut args: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
-            .map(String::from)
-            .to_vec();
+        let mut args: Vec<String> =
+            ["-p", "--input-format", "stream-json", "--output-format", "stream-json"].map(String::from).to_vec();
+        args.extend(["--verbose".into(), "--include-partial-messages".into()]);
         args.extend(["--model".into(), settings.model.clone(), "--effort".into(), settings.effort.clone()]);
         // No tools, no saved session: a plain prompt → answer call.
         args.extend(["--tools".into(), String::new(), "--no-session-persistence".into()]);
@@ -33,7 +39,7 @@ impl CliFlavor for ClaudeCli {
     }
 
     fn stdin(&self, request: &LlmRequest) -> Option<String> {
-        Some(transcript(&request.messages))
+        Some(user_line(request))
     }
 
     fn parse_line(&self, line: &str) -> LineEvent {
@@ -46,6 +52,18 @@ impl CliFlavor for ClaudeCli {
             _ => LineEvent::Ignore,
         }
     }
+}
+
+/// The stdin line: every image as a base64 block, then the transcript as text.
+fn user_line(request: &LlmRequest) -> String {
+    let mut content = Vec::new();
+    for image in request.messages.iter().flat_map(|m| m.images.iter()) {
+        let source = json!({"type": "base64", "media_type": image.mime_type, "data": BASE64.encode(&image.data)});
+        content.push(json!({"type": "image", "source": source}));
+    }
+    content.push(json!({"type": "text", "text": transcript(&request.messages)}));
+    let line = json!({"type": "user", "message": {"role": "user", "content": content}});
+    format!("{line}\n")
 }
 
 fn stream_delta(delta: &Value) -> LineEvent {

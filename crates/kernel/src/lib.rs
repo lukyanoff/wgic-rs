@@ -17,8 +17,8 @@ mod module;
 pub mod testing;
 mod transport;
 
-pub use channel::{Channel, ChannelBody};
-pub use deps::Deps;
+pub use channel::{Channel, ChannelBody, ChannelFactory};
+pub use deps::{Deps, InstanceModules};
 pub use field::{Field, FieldValue, kv};
 pub use logger::{Level, LogBackend, Logger};
 pub use metrics::{MetricKind, Metrics, MetricsBackend};

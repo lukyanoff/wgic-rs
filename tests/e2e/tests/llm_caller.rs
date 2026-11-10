@@ -6,86 +6,25 @@
 
 use std::time::Duration;
 
+use connectrpc::client::CallOptions;
 use connectrpc::{ConnectError, ErrorCode};
 use contracts::proto::llm_caller::v1::{
-    CallRequest, CallResponse, ChatMessage, LlmCallerServiceClient, call_response::Event,
+    CallRequest, CallResponse, ChatMessage, Image, LlmCallerServiceClient, call_response::Event,
 };
 use e2e::Host;
+use e2e::fake_openai::{Seen, fake_openai};
 use kernel::Deps;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-
-// ---------------------------------------------------------------------------------------------
-// Fake OpenAI server
-// ---------------------------------------------------------------------------------------------
-
-const PIECES: [&str; 3] = ["{\"city\":", " \"Paris\",", " \"country\": \"FR\"}"];
-
-/// Answer every request with a streamed Responses API reply; return the base URL.
-async fn fake_openai() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake server");
-    let addr = listener.local_addr().expect("local addr");
-    tokio::spawn(async move {
-        while let Ok((socket, _)) = listener.accept().await {
-            tokio::spawn(answer(socket));
-        }
-    });
-    format!("http://{addr}")
-}
-
-async fn answer(mut socket: TcpStream) {
-    read_request(&mut socket).await;
-    let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n";
-    let _ = socket.write_all(head.as_bytes()).await;
-    for piece in PIECES {
-        let event = serde_event("response.output_text.delta", &format!("\"delta\":{piece:?}"));
-        let _ = socket.write_all(event.as_bytes()).await;
-        tokio::time::sleep(Duration::from_millis(300)).await; // > the service's progress interval
-    }
-    let usage = "\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":9}}";
-    let _ = socket.write_all(serde_event("response.completed", usage).as_bytes()).await;
-}
-
-fn serde_event(kind: &str, fields: &str) -> String {
-    format!("data: {{\"type\":\"{kind}\",{fields}}}\n\n")
-}
-
-/// Read until the headers and the `content-length` body are in.
-async fn read_request(socket: &mut TcpStream) {
-    let mut data = Vec::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let Ok(n) = socket.read(&mut buf).await else { return };
-        if n == 0 {
-            return;
-        }
-        data.extend_from_slice(&buf[..n]);
-        if request_complete(&data) {
-            return;
-        }
-    }
-}
-
-fn request_complete(data: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(data);
-    let Some(end) = text.find("\r\n\r\n") else {
-        return false;
-    };
-    let mut length = 0;
-    for line in text[..end].lines() {
-        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-            length = value.trim().parse::<usize>().unwrap_or(0);
-        }
-    }
-    data.len() >= end + 4 + length
-}
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------------------------
 
 async fn start_host() -> Host {
-    let base_url = fake_openai().await;
+    start_host_with(false, Seen::default()).await
+}
+
+async fn start_host_with(hang: bool, seen: Seen) -> Host {
+    let base_url = fake_openai(hang, seen).await;
     let env = [
         ("LLM_CALLER_ID", "llm-e2e"),
         ("LLM_CALLER_DRIVER", "openai"),
@@ -103,8 +42,12 @@ fn request(role: &str, content: &str) -> CallRequest {
 }
 
 async fn collect(deps: &Deps, req: CallRequest) -> Result<Vec<CallResponse>, ConnectError> {
+    collect_with(deps, req, CallOptions::default()).await
+}
+
+async fn collect_with(deps: &Deps, req: CallRequest, options: CallOptions) -> Result<Vec<CallResponse>, ConnectError> {
     let client = LlmCallerServiceClient::new(deps.channel(), deps.client_config());
-    let mut stream = client.call(req).await?;
+    let mut stream = client.call_with_options(req, options).await?;
     let mut all = Vec::new();
     while let Some(message) = stream.message().await? {
         all.push(message.to_owned_message());
@@ -152,4 +95,28 @@ async fn unknown_role_is_invalid_argument_over_nats() {
     let host = start_host().await;
     let error = collect(&host.nats_deps().await, request("robot", "hi")).await.unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidArgument);
+}
+
+#[tokio::test]
+async fn image_reaches_the_provider_as_a_data_url() {
+    let seen = Seen::default();
+    let host = start_host_with(false, seen.clone()).await;
+    let mut req = request("user", "What is in the picture?");
+    let image = Image { data: vec![1, 2, 3], mime_type: "image/png".into(), ..Default::default() };
+    req.messages[0].images.push(image);
+    collect(&host.nats_deps().await, req).await.unwrap();
+    let sent = seen.request.lock().expect("lock").clone();
+    assert!(sent.contains(r#""image_url":"data:image/png;base64,AQID""#), "request was: {sent}");
+}
+
+/// The client's deadline travels over NATS; the llm_caller host ends the stream when it passes and drops
+/// the provider call (the fake server sees the connection close).
+#[tokio::test]
+async fn deadline_over_nats_cancels_the_provider_call() {
+    let seen = Seen::default();
+    let host = start_host_with(true, seen.clone()).await;
+    let options = CallOptions::default().with_timeout(Duration::from_secs(1));
+    let error = collect_with(&host.nats_deps().await, request("user", "hi"), options).await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::DeadlineExceeded);
+    assert!(seen.wait_for_hang_up(Duration::from_secs(5)).await, "the provider call was not cancelled within 5 s");
 }

@@ -18,11 +18,16 @@ pub use host::{Modules, deps_from_env, run, select_modules};
 pub use http_server::cors;
 pub use telemetry::{TelemetryGuard, init as init_telemetry};
 
-use connectrpc::{ConnectRpcService, Router};
+use connectrpc::{ConnectRpcService, DeadlinePolicy, Router};
 
 /// The connect service with the OTEL interceptor, shared by every adapter.
+///
+/// The client's deadline (`connect-timeout-ms`) also ends **streams**: when it passes, the stream ends with
+/// `deadline_exceeded` and the handler's stream is dropped, so the service stops its work (cancel).
 pub fn traced_service(router: Router) -> ConnectRpcService {
-    ConnectRpcService::new(router).with_interceptor(telemetry::OtelInterceptor::new())
+    ConnectRpcService::new(router)
+        .with_interceptor(telemetry::OtelInterceptor::new())
+        .with_deadline_policy(DeadlinePolicy::new().with_enforce_on_streams(true))
 }
 
 /// Address to listen on / connect to, from env `ADDR` (default `127.0.0.1:8080`).

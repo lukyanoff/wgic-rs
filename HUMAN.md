@@ -43,6 +43,19 @@ CORS_ORIGINS=http://localhost:5173,https://playground.example.com cargo run -p h
 
 ## Web playground
 
+Everything at once (compose, greet, sensors, LLM callers, playground; Ctrl+C stops it all):
+
+```sh
+scripts/run-all.sh
+```
+
+Add `--prod` for a release build with less memory per process (`scripts/run-all.sh --prod`). It sets
+`HOST_PROFILE=release`, `MALLOC_ARENA_MAX=2`, `MALLOC_TRIM_THRESHOLD_=1048576` and `TOKIO_WORKER_THREADS=2`
+(each can be overridden from the shell). Measured on a screen sensor after three 4K screenshots: 99 MB → 13 MB RSS,
+21 → 4 threads. The release build takes about a minute the first time.
+
+Or step by step:
+
 ```sh
 npm run gen                  # once, and after proto changes
 cd web && npm run dev        # http://localhost:5173
@@ -71,16 +84,16 @@ Both are built on `libs/sensor_base`, so they share config, encoding, logs/metri
 Each has `Capture` and `ListDevices`.
 
 **One instance per device.** Each sensor process captures one device, chosen by config. To run all four
-(2 screens, 2 cameras), each in its own process with its own port and NATS prefix:
+(2 screens, 2 cameras), each in its own process with its own NATS prefix (NATS only, no HTTP ports; screens send
+JPEG, `SCREEN_FORMAT=png scripts/run-sensors.sh` for PNG):
 
 ```sh
 podman compose up -d
-scripts/run-sensors.sh       # screen-1 :8081, screen-2 :8082, cam-1 :8083, cam-2 :8084 (Ctrl+C stops all)
-curl -s -H 'Content-Type: application/json' -d '{}' localhost:8083/camera_sensor.v1.CameraSensorService/Capture | jq .metadata
+scripts/run-sensors.sh       # screen-1, screen-2, cam-1, cam-2 (Ctrl+C stops all)
 podman compose run --rm nats-box nats req cam-2.camera_sensor.v1.CameraSensorService.Capture '{}'
 ```
 
-In the playground, pick `screen-1 http (8081)` … `cam-2 nats` (click "Reset to servers.json" once to get them).
+In the playground, pick `screen-1 nats` … `cam-2 nats` (click "Reset to servers.json" once to get them).
 Call `ListDevices` to see which index/name each device has, then edit the `*_DEVICE` lines in `scripts/run-sensors.sh`.
 
 | Variable (screen / camera) | Values |
@@ -105,20 +118,22 @@ model, effort and temperature:
 
 | Driver | How | Effort | Temperature |
 |---|---|---|---|
-| `claude-cli` | `claude -p --output-format stream-json`, no tools | `low`…`max` | no |
+| `claude-cli` | `claude -p --input-format stream-json --output-format stream-json`, no tools | `low`…`max` | no |
 | `agy-cli` | `agy -p --output-format stream-json --sandbox --mode plan` | `low`…`max` | no |
 | `openai` | `POST /v1/responses`, SSE (`OPENAI_API_KEY`) | `minimal`…`high` | yes |
 | `openrouter` | `POST /api/v1/chat/completions`, SSE (`OPENROUTER_API_KEY`) | `minimal`…`high` | yes |
 
 ```sh
 podman compose up -d
-scripts/run-llm-callers.sh    # llm-claude :8091, llm-agy :8092, llm-openai :8093, llm-openrouter :8094
-curl -N -H 'Content-Type: application/connect+json' --data-binary @<(printf '\x00\x00\x00\x00\x2d{"messages":[{"role":"user","content":"hi"}]}') \
-  localhost:8091/llm_caller.v1.LlmCallerService/Call
+scripts/run-llm-callers.sh    # llm-claude, llm-agy, llm-openai, llm-openrouter on NATS (Ctrl+C stops all)
 ```
 
-In the playground, pick `llm-claude http (8091)` … `llm-openrouter nats` and call `Call`.
+In the playground, pick `llm-claude nats` … `llm-openrouter nats` and call `Call`.
 The progress messages appear one by one.
+
+**Images.** A user message may carry `images: [{data, mime_type}]` (png, jpeg, webp, gif; ≤ 5 MB each):
+claude gets them as base64 blocks on stdin, OpenAI/OpenRouter as data URLs, and agy (text-only stdin) as files
+`image-1.png`… in the call's own temp folder, which its prompt names.
 
 | Variable | Values |
 |---|---|
@@ -129,6 +144,38 @@ The progress messages appear one by one.
 | `LLM_CALLER_TEMPERATURE` | `0..2`, HTTP drivers only. Set on a CLI driver, it stops the host at startup |
 | `LLM_CALLER_TIMEOUT_SECS` | whole-call limit (default 300) |
 | `LLM_CALLER_BASE_URL` / `LLM_CALLER_CLI_PATH` | replace the provider URL or the CLI program (tests, proxies) |
+
+## Visioner (orchestrator)
+
+`visioner` takes a screenshot from one screen sensor instance and asks K llm_caller instances, **in parallel**,
+what they see. `Check` is server-streaming: progress from `screen` and from each model (its partial text, passed
+on), then one result with every model's answer.
+
+- Fail safe: a model that fails or times out shows up as `ok: false` with an `error_code`; the check fails only
+  without a screenshot or when every model failed.
+- Every call has a deadline (`connect-timeout-ms`). Servers enforce it on streams too, so a timed-out model call is
+  stopped at the callee as well (llm_caller kills its CLI).
+- It calls the other instances **by id over NATS**, through the client factories in `libs/clients`
+  (`ScreenSensorClients::new(&deps).get("screen-1", timeout)`).
+
+```sh
+scripts/run-all.sh    # starts screen-1, the llm callers and vision-1 (= screen-1 + llm-claude,llm-agy)
+```
+
+In the playground, pick `vision-1 nats` and call `Check` from the **RPC** tab with **Timeout ms** ≈ 180000 (the
+default 10 s ends a real check with `deadline_exceeded`). `Check` is streaming: the NATS tab and `nats req` send
+unary `application/json` requests, which get `unimplemented` ("… is a streaming method"). In Jaeger (http://localhost:16686), service `vision-1`:
+one trace holds the `Check` span with `screen-1`'s `Capture` and each model's `Call` under it.
+
+| Variable | Values |
+|---|---|
+| `VISIONER_SCREEN` | screen sensor instance id, e.g. `screen-1`. Unset: every call answers `failed_precondition` |
+| `VISIONER_LLMS` | llm_caller instance ids, comma-separated, e.g. `llm-claude,llm-agy` |
+| `VISIONER_ID` | instance id in logs (default `vision`) |
+| `VISIONER_SCREEN_TIMEOUT_SECS` / `VISIONER_LLM_TIMEOUT_SECS` | per-call deadlines (default 15 / 120) |
+
+In `scripts/run-visioners.sh` the same settings are `VISION_SCREEN`, `VISION_LLMS`, … (e.g.
+`VISION_LLMS=llm-claude,llm-openai scripts/run-all.sh`).
 
 ## NATS micro
 

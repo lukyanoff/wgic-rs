@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use connectrpc::Router;
 use connectrpc::client::ClientConfig;
 
+use crate::channel::SameChannel;
 use crate::testing::{NoopLogs, NoopMetrics};
-use crate::{Channel, LogBackend, Logger, Metrics, MetricsBackend, Module};
+use crate::{Channel, ChannelFactory, LogBackend, Logger, Metrics, MetricsBackend, Module};
 
 /// What the host gives a service when it is created (≈ a C# DI container, but explicit).
 ///
@@ -13,9 +15,13 @@ use crate::{Channel, LogBackend, Logger, Metrics, MetricsBackend, Module};
 /// Call another service with its generated client:
 /// `BillingServiceClient::new(deps.channel(), deps.client_config())`.
 /// Whether that call goes over HTTP, NATS or stays in-process is the host's decision.
+///
+/// Call one named instance (e.g. `screen-1` of several screen sensors) through `channel_to("screen-1")`,
+/// or better through its client factory in `libs/clients`.
 #[derive(Clone)]
 pub struct Deps {
     channel: Channel,
+    channels: Arc<dyn ChannelFactory>,
     client_config: ClientConfig,
     logs: Arc<dyn LogBackend>,
     metrics: Arc<dyn MetricsBackend>,
@@ -24,7 +30,14 @@ pub struct Deps {
 impl Deps {
     /// Logs and metrics are dropped until [`Deps::with_logs`] / [`Deps::with_metrics`] set them.
     pub fn new(channel: Channel, client_config: ClientConfig) -> Self {
-        Self { channel, client_config, logs: Arc::new(NoopLogs), metrics: Arc::new(NoopMetrics) }
+        let channels = Arc::new(SameChannel(channel.clone()));
+        Self { channel, channels, client_config, logs: Arc::new(NoopLogs), metrics: Arc::new(NoopMetrics) }
+    }
+
+    /// Use `factory` for [`Deps::channel_to`] (platform's NATS factory, or a test one).
+    pub fn with_channels(mut self, factory: impl ChannelFactory + 'static) -> Self {
+        self.channels = Arc::new(factory);
+        self
     }
 
     /// Send logs to `backend` (platform's `TracingLogs`, or `testing::MemoryLogs`).
@@ -57,14 +70,37 @@ impl Deps {
     /// let client = GreetServiceClient::new(deps.channel(), deps.client_config());
     /// ```
     pub fn in_process(modules: &[Arc<dyn Module>]) -> Self {
-        let router = modules.iter().fold(Router::new(), |router, module| module.register(router));
+        let router = router_for(modules);
         let config = ClientConfig::new("http://in-process".parse().expect("valid uri"));
         Self::new(Channel::in_process(router), config)
     }
 
-    /// Transport for calls to other services.
+    /// Deps where each instance id has its own in-process services. For tests of a service that calls
+    /// several instances of the same service:
+    ///
+    /// ```ignore
+    /// let deps = Deps::in_process_instances(vec![("llm-a", vec![llm_a]), ("llm-b", vec![llm_b])]);
+    /// let client = LlmCallerServiceClient::new(deps.channel_to("llm-b"), deps.client_config());
+    /// ```
+    /// An unknown id gets an empty router (calls answer `unimplemented`).
+    pub fn in_process_instances(instances: Vec<(&str, InstanceModules)>) -> Self {
+        let mut channels = HashMap::new();
+        for (id, modules) in instances {
+            channels.insert(id.to_string(), Channel::in_process(router_for(&modules)));
+        }
+        let factory = InstanceChannels { channels, unknown: Channel::in_process(Router::new()) };
+        let config = ClientConfig::new("http://in-process".parse().expect("valid uri"));
+        Self::new(factory.unknown.clone(), config).with_channels(factory)
+    }
+
+    /// Transport for calls to other services (on this host's own NATS prefix).
     pub fn channel(&self) -> Channel {
         self.channel.clone()
+    }
+
+    /// Transport for calls to the service instance `instance` (over NATS: the host with that `NATS_PREFIX`).
+    pub fn channel_to(&self, instance: &str) -> Channel {
+        self.channels.channel_to(instance)
     }
 
     /// Client settings (base URI, codec) that match [`Deps::channel`].
@@ -77,3 +113,26 @@ impl Deps {
         std::env::var(key).ok().filter(|v| !v.trim().is_empty())
     }
 }
+
+/// The services one test instance runs (see [`Deps::in_process_instances`]).
+pub type InstanceModules = Vec<Arc<dyn Module>>;
+
+fn router_for(modules: &[Arc<dyn Module>]) -> Router {
+    modules.iter().fold(Router::new(), |router, module| module.register(router))
+}
+
+/// [`Deps::in_process_instances`]: one in-process channel per instance id.
+struct InstanceChannels {
+    channels: HashMap<String, Channel>,
+    unknown: Channel,
+}
+
+impl ChannelFactory for InstanceChannels {
+    fn channel_to(&self, instance: &str) -> Channel {
+        self.channels.get(instance).unwrap_or(&self.unknown).clone()
+    }
+}
+
+#[cfg(test)]
+#[path = "deps_tests.rs"]
+mod tests;

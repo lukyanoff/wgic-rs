@@ -37,7 +37,30 @@ pub enum Role {
 pub struct ChatMessage {
     pub role: Role,
     pub content: String,
+    /// Pictures for the model to look at (user messages only).
+    pub images: Vec<Image>,
 }
+
+impl ChatMessage {
+    /// A text-only message.
+    pub fn new(role: Role, content: impl Into<String>) -> Self {
+        Self { role, content: content.into(), images: Vec::new() }
+    }
+}
+
+/// One picture sent with a message, e.g. a screenshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    pub data: Vec<u8>,
+    /// `image/png` | `image/jpeg` | `image/webp` | `image/gif`
+    pub mime_type: String,
+}
+
+/// Image types every driver accepts.
+pub const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+/// Largest image accepted (the Anthropic limit; the others allow more).
+pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
 /// What a driver gets: the chat (the JSON instruction is already in it) and the optional schema,
 /// for providers that can enforce it natively.
@@ -186,10 +209,34 @@ pub fn prepare(messages: Vec<ChatMessage>, json_schema: Option<String>) -> Resul
     {
         return Err(LlmError::InvalidRequest("json_schema is not valid JSON".into()));
     }
-    let instruction = ChatMessage { role: Role::System, content: json_instruction(json_schema.as_deref()) };
+    check_images(&messages)?;
+    let has_images = messages.iter().any(|m| !m.images.is_empty());
+    let instruction = ChatMessage::new(Role::System, json_instruction(json_schema.as_deref(), has_images));
     let mut all = vec![instruction];
     all.extend(messages);
     Ok(LlmRequest { messages: all, json_schema })
+}
+
+/// Images only on user messages, of a known type, not empty and not too big.
+fn check_images(messages: &[ChatMessage]) -> Result<(), LlmError> {
+    for message in messages {
+        if !message.images.is_empty() && message.role != Role::User {
+            return Err(LlmError::InvalidRequest("images are allowed on user messages only".into()));
+        }
+        for image in &message.images {
+            if !IMAGE_TYPES.contains(&image.mime_type.as_str()) {
+                let allowed = IMAGE_TYPES.join(", ");
+                return Err(LlmError::InvalidRequest(format!(
+                    "image type {:?} is not one of {allowed}",
+                    image.mime_type
+                )));
+            }
+            if image.data.is_empty() || image.data.len() > MAX_IMAGE_BYTES {
+                return Err(LlmError::InvalidRequest(format!("an image must have 1..{MAX_IMAGE_BYTES} bytes")));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `system` | `user` | `assistant` (case-insensitive).

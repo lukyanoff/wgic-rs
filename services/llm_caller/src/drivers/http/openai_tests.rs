@@ -5,7 +5,7 @@ use crate::config::DriverKind;
 use crate::domain::{ChatMessage, Role};
 
 fn request(schema: Option<&str>) -> LlmRequest {
-    let messages = vec![ChatMessage { role: Role::User, content: "hi".into() }];
+    let messages = vec![ChatMessage::new(Role::User, "hi")];
     LlmRequest { messages, json_schema: schema.map(String::from) }
 }
 
@@ -59,4 +59,14 @@ fn completed_gives_usage() {
 fn failed_response_is_failed_with_message() {
     let parsed = event(r#"{"type":"response.failed","response":{"error":{"message":"server overloaded"}}}"#);
     assert_eq!(parsed, SseEvent::Failed(LlmError::Failed("openai: server overloaded".into())));
+}
+
+#[test]
+fn image_becomes_an_input_image_part() {
+    let mut req = request(None);
+    req.messages[0].images.push(crate::domain::Image { data: vec![1, 2, 3], mime_type: "image/png".into() });
+    let settings = LlmSettings::new("x", DriverKind::OpenAi, "m");
+    let content = &OpenAi.body(&settings, &req)["input"][0]["content"];
+    assert_eq!(content[0], json!({"type": "input_image", "image_url": "data:image/png;base64,AQID"}));
+    assert_eq!(content[1], json!({"type": "input_text", "text": "hi"}));
 }

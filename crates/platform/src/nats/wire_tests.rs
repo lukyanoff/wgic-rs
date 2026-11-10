@@ -64,6 +64,19 @@ fn connect_plus_content_types_are_streaming() {
 }
 
 #[test]
+fn unary_request_to_a_streaming_method_gets_a_hint() {
+    let hint = streaming_hint("unimplemented", "method not found: a.v1.S/Check", Some("application/json")).unwrap();
+    assert!(hint.starts_with("a.v1.S/Check is a streaming method"), "{hint}");
+    assert!(streaming_hint("unimplemented", "method not found: x", None).is_some(), "no content type = unary");
+}
+
+#[test]
+fn other_errors_keep_their_message() {
+    assert_eq!(streaming_hint("unimplemented", "method not found: x", Some("application/connect+json")), None);
+    assert_eq!(streaming_hint("invalid_argument", "method not found: x", Some("application/json")), None);
+}
+
+#[test]
 fn unary_or_missing_content_types_are_not_streaming() {
     assert!(!is_streaming(Some("application/json")));
     assert!(!is_streaming(Some("application/proto")));

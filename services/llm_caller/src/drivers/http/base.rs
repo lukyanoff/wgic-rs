@@ -9,12 +9,14 @@
 
 use std::sync::Arc;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use futures::StreamExt;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::config::LlmSettings;
-use crate::domain::{ChatMessage, Delta, DriverFuture, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
+use crate::domain::{ChatMessage, Delta, DriverFuture, Image, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
 use crate::json::excerpt;
 
 // ---------------------------------------------------------------------------------------------
@@ -174,7 +176,12 @@ pub fn sse_data(line: &str) -> Option<&str> {
 }
 
 /// Chat messages in the `[{"role","content"}]` shape both OpenAI and OpenRouter use.
-pub fn messages_json(messages: &[ChatMessage]) -> Value {
+///
+/// A message with images gets a list of parts instead of a string. The part shapes differ per provider, so
+/// the flavor passes them in:
+/// - OpenAI: `{"type":"input_text","text":…}` + `{"type":"input_image","image_url":"data:…"}`
+/// - OpenRouter: `{"type":"text","text":…}` + `{"type":"image_url","image_url":{"url":"data:…"}}`
+pub fn messages_json(messages: &[ChatMessage], parts: &ContentParts) -> Value {
     let mut list = Vec::new();
     for message in messages {
         let role = match message.role {
@@ -182,9 +189,33 @@ pub fn messages_json(messages: &[ChatMessage]) -> Value {
             Role::User => "user",
             Role::Assistant => "assistant",
         };
-        list.push(json!({ "role": role, "content": message.content }));
+        list.push(json!({ "role": role, "content": content_json(message, parts) }));
     }
     Value::Array(list)
+}
+
+/// How a provider spells a text part and an image part.
+pub struct ContentParts {
+    pub text_type: &'static str,
+    /// Builds the image part from its `data:` URL.
+    pub image_part: fn(String) -> Value,
+}
+
+fn content_json(message: &ChatMessage, parts: &ContentParts) -> Value {
+    if message.images.is_empty() {
+        return json!(message.content);
+    }
+    let mut list = Vec::new();
+    for image in &message.images {
+        list.push((parts.image_part)(data_url(image)));
+    }
+    list.push(json!({ "type": parts.text_type, "text": message.content }));
+    Value::Array(list)
+}
+
+/// `data:image/png;base64,iVBOR…`
+pub fn data_url(image: &Image) -> String {
+    format!("data:{};base64,{}", image.mime_type, BASE64.encode(&image.data))
 }
 
 /// The request's JSON Schema as JSON (`LlmCaller` already checked that it parses).

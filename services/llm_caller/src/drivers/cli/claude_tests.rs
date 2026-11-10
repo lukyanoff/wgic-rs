@@ -2,13 +2,10 @@
 
 use super::*;
 use crate::config::DriverKind;
-use crate::domain::{ChatMessage, Role};
+use crate::domain::{ChatMessage, Image, Role};
 
 fn request(schema: Option<&str>) -> LlmRequest {
-    let messages = vec![
-        ChatMessage { role: Role::System, content: "Answer in JSON.".into() },
-        ChatMessage { role: Role::User, content: "hi".into() },
-    ];
+    let messages = vec![ChatMessage::new(Role::System, "Answer in JSON."), ChatMessage::new(Role::User, "hi")];
     LlmRequest { messages, json_schema: schema.map(String::from) }
 }
 
@@ -17,15 +14,29 @@ fn args_carry_model_effort_system_prompt_and_schema() {
     let mut settings = LlmSettings::new("x", DriverKind::ClaudeCli, "claude-haiku-5-5");
     settings.effort = "low".into();
     let args = ClaudeCli.args(&settings, &request(Some("{}"))).join(" ");
-    assert!(args.starts_with("-p --output-format stream-json"));
+    assert!(args.starts_with("-p --input-format stream-json --output-format stream-json"));
     assert!(args.contains("--model claude-haiku-5-5 --effort low"));
     assert!(args.contains("--system-prompt Answer in JSON."));
     assert!(args.ends_with("--json-schema {}"));
 }
 
 #[test]
-fn prompt_goes_to_stdin() {
-    assert_eq!(ClaudeCli.stdin(&request(None)).as_deref(), Some("hi"));
+fn prompt_goes_to_stdin_as_one_user_line() {
+    let line = ClaudeCli.stdin(&request(None)).expect("stdin");
+    let value: Value = serde_json::from_str(&line).expect("one JSON line");
+    assert_eq!(value["type"], "user");
+    assert_eq!(value["message"]["content"], serde_json::json!([{"type": "text", "text": "hi"}]));
+}
+
+#[test]
+fn images_go_first_as_base64_blocks() {
+    let mut req = request(None);
+    req.messages[1].images.push(Image { data: vec![1, 2, 3], mime_type: "image/png".into() });
+    let value: Value = serde_json::from_str(&ClaudeCli.stdin(&req).expect("stdin")).expect("JSON");
+    let content = &value["message"]["content"];
+    assert_eq!(content[0]["type"], "image");
+    assert_eq!(content[0]["source"], serde_json::json!({"type": "base64", "media_type": "image/png", "data": "AQID"}));
+    assert_eq!(content[1]["text"], "hi");
 }
 
 #[test]

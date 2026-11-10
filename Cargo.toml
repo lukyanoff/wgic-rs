@@ -28,6 +28,8 @@ screen_sensor = { path = "services/screen_sensor" }
 camera_sensor = { path = "services/camera_sensor" }
 llm_caller = { path = "services/llm_caller" }
 sensor_base = { path = "libs/sensor_base" }
+clients = { path = "libs/clients" }
+visioner = { path = "services/visioner" }
 
 # third party
 anyhow = "1.0.104"
@@ -35,6 +37,7 @@ async-nats = { version = "0.52.0", features = ["service"] }
 axum = "0.8.9"
 buffa = { version = "0.9.2", features = ["json"] }
 buffa-types = { version = "0.9.2", features = ["json"] }
+base64 = "0.22.1"
 bytes = "1.12.1"
 connectrpc = { version = "0.9.1", features = ["server", "client", "axum"] }
 futures = "0.3.34"
@@ -72,3 +75,15 @@ type_complexity = "warn"
 excessive_nesting = "warn"
 fn_params_excessive_bools = "warn"
 struct_excessive_bools = "warn"
+
+# Smaller debug builds: backtraces keep file:line for our code, no debug info for third-party crates.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# `run-all.sh --prod`: optimized, smaller binary (less code mapped into each process).
+[profile.release]
+lto = "thin"
+strip = "symbols"

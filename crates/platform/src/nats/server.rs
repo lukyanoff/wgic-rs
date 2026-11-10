@@ -18,7 +18,9 @@ use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::stream::publish_stream;
-use super::wire::{CONNECT_CODE, NatsConfig, endpoint_name, is_streaming, parse_connect_error, subject_for};
+use super::wire::{
+    CONNECT_CODE, NatsConfig, endpoint_name, is_streaming, parse_connect_error, streaming_hint, subject_for,
+};
 use crate::telemetry::{continue_trace, extract_nats, inject_http, is_propagation_header};
 
 type Reply = (Result<Bytes, async_nats::service::error::Error>, HeaderMap);
@@ -96,8 +98,9 @@ async fn respond(request: NatsRequest, service: ConnectRpcService, nc: async_nat
         }
         return;
     }
+    let request_type = request_content_type(&request.message);
     let reply = match body.collect().await {
-        Ok(body) => to_reply(&parts, body.to_bytes()),
+        Ok(body) => to_reply(&parts, body.to_bytes(), request_type.as_deref()),
         Err(e) => error_reply(500, "internal", e.to_string(), HeaderMap::new()),
     };
     send_reply(request, reply, &rpc_path).await
@@ -184,8 +187,13 @@ fn to_http_request(rpc_path: &str, msg: &async_nats::Message) -> Result<Request<
     Ok(request)
 }
 
+fn request_content_type(msg: &async_nats::Message) -> Option<String> {
+    let value = msg.headers.as_ref()?.get(http::header::CONTENT_TYPE.as_str())?;
+    Some(value.as_str().to_string())
+}
+
 /// HTTP response from the connect router → NATS reply.
-fn to_reply(parts: &response::Parts, body: Bytes) -> Reply {
+fn to_reply(parts: &response::Parts, body: Bytes, request_content_type: Option<&str>) -> Reply {
     let mut headers = HeaderMap::new();
     for (name, value) in parts.headers.iter() {
         if let Ok(v) = value.to_str() {
@@ -196,5 +204,6 @@ fn to_reply(parts: &response::Parts, body: Bytes) -> Reply {
         return (Ok(body), headers);
     }
     let (code, message) = parse_connect_error(&body);
+    let message = streaming_hint(&code, &message, request_content_type).unwrap_or(message);
     error_reply(parts.status.as_u16(), &code, message, headers)
 }

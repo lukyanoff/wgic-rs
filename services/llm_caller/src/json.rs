@@ -1,9 +1,15 @@
 //! Asking for JSON and finding it in a model's answer. Pure functions, unit tested.
 
 /// The system instruction that asks for a JSON answer, with the schema when one is given.
-pub fn json_instruction(schema: Option<&str>) -> String {
-    let base = "Answer with JSON only: no prose, no markdown fences. Answer directly from your own \
-                knowledge; do not use tools.";
+/// With images, a model that gets them as files (agy) may open those files, and nothing else.
+pub fn json_instruction(schema: Option<&str>, has_images: bool) -> String {
+    let base = if has_images {
+        "Answer with JSON only: no prose, no markdown fences. Look at the attached images; you may open \
+         the attached image files, but do not use any other tool."
+    } else {
+        "Answer with JSON only: no prose, no markdown fences. Answer directly from your own \
+         knowledge; do not use tools."
+    };
     match schema {
         Some(schema) => format!("{base}\nThe JSON must match this JSON Schema:\n{schema}"),
         None => format!("{base}\nUse a JSON object or array."),

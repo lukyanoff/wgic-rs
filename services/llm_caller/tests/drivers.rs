@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use llm_caller::config::{DriverKind, LlmSettings};
-use llm_caller::domain::{ChatMessage, Delta, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
+use llm_caller::domain::{ChatMessage, Delta, Image, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
+use llm_caller::drivers::cli::agy::AgyCli;
 use llm_caller::drivers::cli::base::CliCaller;
 use llm_caller::drivers::cli::claude::ClaudeCli;
 use llm_caller::drivers::http::base::HttpCaller;
@@ -20,7 +21,7 @@ use tokio::sync::mpsc;
 // ---------------------------------------------------------------------------------------------
 
 fn request() -> LlmRequest {
-    let messages = vec![ChatMessage { role: Role::User, content: "hi".into() }];
+    let messages = vec![ChatMessage::new(Role::User, "hi")];
     LlmRequest { messages, json_schema: None }
 }
 
@@ -43,11 +44,19 @@ const CLAUDE_OK_LINES: [&str; 4] = [
     r#"{"type":"result","is_error":false,"result":"{\"a\":1}","usage":{"input_tokens":3,"output_tokens":4}}"#,
 ];
 
+const AGY_IMAGE_SCRIPT: &str = r#"if [ -s image-1.png ]; then
+  echo '{"event":"result","result":{"status":"SUCCESS","response":"{\"seen\":\"image-1.png\"}"}}'
+else
+  echo '{"event":"result","result":{"status":"ERROR","error":"no image file"}}'
+fi"#;
+
 /// Paths of the fake CLIs.
 struct Scripts {
     ok: String,
     fail: String,
     slow: String,
+    /// A fake agy that answers `{"seen":"image-1.png"}` only when that file is in its folder.
+    agy_image: String,
 }
 
 /// All fake CLIs, written once before any test starts a process. Writing a script while another
@@ -61,6 +70,7 @@ fn scripts() -> &'static Scripts {
             ok: script("claude_ok", &format!("cat > /dev/null\n{}", echo.join("\n"))),
             fail: script("claude_fail", "echo 'invalid model: m' >&2\nexit 3"),
             slow: script("claude_slow", "sleep 30"),
+            agy_image: script("agy_image", AGY_IMAGE_SCRIPT),
         }
     })
 }
@@ -143,6 +153,18 @@ async fn cli_streams_text_and_returns_the_result_line() {
     let reply = result.unwrap();
     assert_eq!((reply.text.as_str(), reply.input_tokens, reply.output_tokens), ("{\"a\":1}", 3, 4));
     assert_eq!(deltas, [Delta::Text("{\"a\":".into()), Delta::Text("1}".into())]);
+}
+
+#[tokio::test]
+async fn agy_finds_the_image_as_a_file_in_its_folder() {
+    let mut settings = LlmSettings::new("t", DriverKind::AgyCli, "m");
+    settings.cli_path = Some(scripts().agy_image.clone());
+    let mut message = ChatMessage::new(Role::User, "what is this?");
+    message.images.push(Image { data: vec![0x89, b'P', b'N', b'G'], mime_type: "image/png".into() });
+    let request = LlmRequest { messages: vec![message], json_schema: None };
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let reply = CliCaller::new(Arc::new(AgyCli), settings).call(request, tx).await.unwrap();
+    assert_eq!(reply.text, r#"{"seen":"image-1.png"}"#);
 }
 
 #[tokio::test]

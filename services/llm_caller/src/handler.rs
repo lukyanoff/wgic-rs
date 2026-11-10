@@ -18,7 +18,7 @@ use contracts::proto::llm_caller::v1::{
 use kernel::{Deps, Logger, Metrics, kv};
 use tokio::sync::mpsc;
 
-use crate::domain::{ChatMessage, LlmAnswer, LlmCaller, LlmError, Progress, parse_role};
+use crate::domain::{ChatMessage, Image, LlmAnswer, LlmCaller, LlmError, Progress, parse_role};
 
 type Item = Result<CallResponse, ConnectError>;
 
@@ -150,7 +150,11 @@ impl CallRunner {
 fn to_domain(request: &CallRequest) -> Result<Vec<ChatMessage>, LlmError> {
     let mut messages = Vec::new();
     for message in &request.messages {
-        messages.push(ChatMessage { role: parse_role(&message.role)?, content: message.content.clone() });
+        let mut domain = ChatMessage::new(parse_role(&message.role)?, message.content.clone());
+        for image in &message.images {
+            domain.images.push(Image { data: image.data.to_vec(), mime_type: image.mime_type.clone() });
+        }
+        messages.push(domain);
     }
     Ok(messages)
 }

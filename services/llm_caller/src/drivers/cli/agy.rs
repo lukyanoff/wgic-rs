@@ -3,6 +3,9 @@
 //! agy is an agent: by default it may run commands or search the web. We run it sandboxed, in
 //! plan mode, in an empty folder, and tell it not to use tools.
 //!
+//! Images: agy accepts only text on stdin, so each image is written as a file (`image-1.png`, ...) into the
+//! call's own folder, and the prompt names those files. agy opens them with one tool step.
+//!
 //! Output (`--output-format stream-json`), one JSON per line:
 //! - `{"event":"step_update","step_update":{"state":"ACTIVE|DONE","step_type":"agent_response","text_delta":"…"}}`
 //! - `{"event":"step_update","step_update":{"state":"ACTIVE","step_type":"tool",…}}` (a tool step)
@@ -10,7 +13,7 @@
 
 use serde_json::Value;
 
-use super::base::{CliFlavor, LineEvent, system_prompt, transcript};
+use super::base::{CliFlavor, LineEvent, image_files, system_prompt, transcript};
 use crate::config::LlmSettings;
 use crate::domain::{Delta, LlmError, LlmReply, LlmRequest};
 
@@ -30,13 +33,23 @@ impl CliFlavor for AgyCli {
             args.extend(["--json-schema".into(), schema.clone()]);
         }
         // agy has no system-prompt flag and reads the prompt from `-p <prompt>` (last, as it takes a value).
-        let prompt = format!("{}\n\n{}", system_prompt(&request.messages), transcript(&request.messages));
+        let prompt = format!(
+            "{}{}\n\n{}",
+            system_prompt(&request.messages),
+            images_note(request),
+            transcript(&request.messages)
+        );
         args.extend(["-p".into(), prompt]);
         args
     }
 
     fn stdin(&self, _request: &LlmRequest) -> Option<String> {
         None
+    }
+
+    fn files(&self, request: &LlmRequest) -> Vec<(String, Vec<u8>)> {
+        let files = image_files(&request.messages);
+        files.into_iter().map(|(name, image)| (name, image.data.clone())).collect()
     }
 
     fn parse_line(&self, line: &str) -> LineEvent {
@@ -49,6 +62,15 @@ impl CliFlavor for AgyCli {
             _ => LineEvent::Ignore,
         }
     }
+}
+
+/// "The attached images are the files image-1.png, ... in the current folder." (empty without images)
+fn images_note(request: &LlmRequest) -> String {
+    let names: Vec<String> = image_files(&request.messages).into_iter().map(|(name, _)| name).collect();
+    if names.is_empty() {
+        return String::new();
+    }
+    format!("\n\nThe attached images are the files {} in the current folder. Open only these files.", names.join(", "))
 }
 
 fn step_delta(step: &Value) -> LineEvent {

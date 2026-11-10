@@ -15,7 +15,14 @@ import {
   type TelemetrySettings,
 } from './otel'
 import { TracePanel } from './TracePanel'
-import { loadServers, resetServers, saveServers, type ServerEntry } from './servers'
+import {
+  loadServers,
+  resetServers,
+  saveSelectedServer,
+  saveServers,
+  selectedServerIndex,
+  type ServerEntry,
+} from './servers'
 import { messageTemplate } from './template'
 
 interface HistoryEntry {
@@ -96,7 +103,10 @@ export default function App() {
     loadSchema()
       .then(setSchema)
       .catch((e) => setSchemaError(String(e)))
-    loadServers().then(setServers)
+    loadServers().then((loaded) => {
+      setServers(loaded)
+      setServerIdx(selectedServerIndex(loaded))
+    })
   }, [])
 
   const methods = useMemo(() => {
@@ -206,7 +216,14 @@ export default function App() {
             </button>
           </div>
           {!editingServers && (
-            <select value={serverIdx} onChange={(e) => setServerIdx(Number(e.target.value))} aria-label="Server">
+            <select
+              value={serverIdx}
+              onChange={(e) => {
+                setServerIdx(Number(e.target.value))
+                saveSelectedServer(servers[Number(e.target.value)])
+              }}
+              aria-label="Server"
+            >
               {servers.map((s, i) => (
                 <option key={i} value={i}>
                   {s.name}: {s.url} ({s.mode})

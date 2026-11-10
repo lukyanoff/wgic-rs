@@ -8,11 +8,14 @@
 
 use serde_json::{Value, json};
 
-use super::base::{HttpFlavor, SseEvent, messages_json, parse_schema};
+use super::base::{ContentParts, HttpFlavor, SseEvent, messages_json, parse_schema};
 use crate::config::LlmSettings;
 use crate::domain::{Delta, LlmError, LlmRequest};
 
 pub struct OpenRouter;
+
+const PARTS: ContentParts =
+    ContentParts { text_type: "text", image_part: |url| json!({ "type": "image_url", "image_url": { "url": url } }) };
 
 impl HttpFlavor for OpenRouter {
     fn default_base_url(&self) -> &'static str {
@@ -30,7 +33,7 @@ impl HttpFlavor for OpenRouter {
     fn body(&self, settings: &LlmSettings, request: &LlmRequest) -> Value {
         let mut body = json!({
             "model": settings.model,
-            "messages": messages_json(&request.messages),
+            "messages": messages_json(&request.messages, &PARTS),
             "stream": true,
             "reasoning": { "effort": settings.effort },
             "response_format": response_format(request.json_schema.as_deref()),

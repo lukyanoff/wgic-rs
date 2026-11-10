@@ -21,6 +21,15 @@ pub struct ChatMessage {
         skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
     )]
     pub content: ::buffa::alloc::string::String,
+    /// Pictures for the model to look at (user messages only), e.g. a screenshot.
+    ///
+    /// Field 3: `images`
+    #[serde(
+        rename = "images",
+        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
+        deserialize_with = "::buffa::json_helpers::null_as_default"
+    )]
+    pub images: ::buffa::alloc::vec::Vec<Image>,
     #[serde(skip)]
     #[doc(hidden)]
     pub __buffa_unknown_fields: ::buffa::UnknownFields,
@@ -30,6 +39,7 @@ impl ::core::fmt::Debug for ChatMessage {
         f.debug_struct("ChatMessage")
             .field("role", &self.role)
             .field("content", &self.content)
+            .field("images", &self.images)
             .finish()
     }
 }
@@ -56,7 +66,7 @@ impl ::buffa::Message for ChatMessage {
     /// above [`::buffa::MAX_MESSAGE_BYTES`] that the encode entry
     /// points reject, never a silently wrapped size.
     #[allow(clippy::let_and_return)]
-    fn compute_size(&self, _cache: &mut ::buffa::SizeCache) -> u32 {
+    fn compute_size(&self, __cache: &mut ::buffa::SizeCache) -> u32 {
         #[allow(unused_imports)]
         use ::buffa::Enumeration as _;
         let mut size = 0u64;
@@ -66,12 +76,20 @@ impl ::buffa::Message for ChatMessage {
         if !self.content.is_empty() {
             size += 1u64 + ::buffa::types::string_encoded_len(&self.content) as u64;
         }
+        for v in &self.images {
+            let __slot = __cache.reserve();
+            let inner_size = v.compute_size(__cache);
+            __cache.set(__slot, inner_size);
+            size
+                += 1u64 + ::buffa::encoding::varint_len(inner_size as u64) as u64
+                    + inner_size as u64;
+        }
         size += self.__buffa_unknown_fields.encoded_len() as u64;
         ::buffa::saturate_size(size)
     }
     fn write_to(
         &self,
-        _cache: &mut ::buffa::SizeCache,
+        __cache: &mut ::buffa::SizeCache,
         buf: &mut impl ::buffa::EncodeSink,
     ) {
         #[allow(unused_imports)]
@@ -81,6 +99,14 @@ impl ::buffa::Message for ChatMessage {
         }
         if !self.content.is_empty() {
             ::buffa::types::put_string_field(2u32, &self.content, buf);
+        }
+        for v in &self.images {
+            ::buffa::types::put_len_delimited_header(
+                3u32,
+                u64::from(__cache.consume_next()),
+                buf,
+            );
+            v.write_to(__cache, buf);
         }
         self.__buffa_unknown_fields.write_to(buf);
     }
@@ -109,6 +135,18 @@ impl ::buffa::Message for ChatMessage {
                 )?;
                 ::buffa::types::merge_string(&mut self.content, buf)?;
             }
+            3u32 => {
+                ::buffa::encoding::check_wire_type(
+                    tag,
+                    ::buffa::encoding::WireType::LengthDelimited,
+                )?;
+                let mut elem = ::core::default::Default::default();
+                ctx.register_element_memory(
+                    ::buffa::__private::element_footprint(&elem),
+                )?;
+                ::buffa::Message::merge_length_delimited(&mut elem, buf, ctx)?;
+                self.images.push(elem);
+            }
             _ => {
                 self.__buffa_unknown_fields
                     .push(::buffa::encoding::decode_unknown_field(tag, buf, ctx)?);
@@ -119,6 +157,7 @@ impl ::buffa::Message for ChatMessage {
     fn clear(&mut self) {
         self.role.clear();
         self.content.clear();
+        self.images.clear();
         self.__buffa_unknown_fields.clear();
     }
 }
@@ -149,6 +188,156 @@ pub const __CHAT_MESSAGE_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buff
     type_url: "type.googleapis.com/llm_caller.v1.ChatMessage",
     to_json: ::buffa::type_registry::any_to_json::<ChatMessage>,
     from_json: ::buffa::type_registry::any_from_json::<ChatMessage>,
+    is_wkt: false,
+};
+/// One picture: image/png | image/jpeg | image/webp | image/gif, at most 5 MB.
+#[derive(Clone, PartialEq, Default)]
+#[derive(::serde::Serialize, ::serde::Deserialize)]
+#[serde(default)]
+pub struct Image {
+    /// Field 1: `data`
+    #[serde(
+        rename = "data",
+        with = "::buffa::json_helpers::bytes",
+        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_bytes"
+    )]
+    pub data: ::buffa::alloc::vec::Vec<u8>,
+    /// Field 2: `mime_type`
+    #[serde(
+        rename = "mimeType",
+        alias = "mime_type",
+        with = "::buffa::json_helpers::proto_string",
+        skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_str"
+    )]
+    pub mime_type: ::buffa::alloc::string::String,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub __buffa_unknown_fields: ::buffa::UnknownFields,
+}
+impl ::core::fmt::Debug for Image {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Image")
+            .field("data", &self.data)
+            .field("mime_type", &self.mime_type)
+            .finish()
+    }
+}
+impl Image {
+    /// Protobuf type URL for this message, for use with `Any::pack` and
+    /// `Any::unpack_if`.
+    ///
+    /// Format: `type.googleapis.com/<fully.qualified.TypeName>`
+    pub const TYPE_URL: &'static str = "type.googleapis.com/llm_caller.v1.Image";
+}
+::buffa::impl_default_instance!(Image);
+impl ::buffa::MessageName for Image {
+    const PACKAGE: &'static str = "llm_caller.v1";
+    const NAME: &'static str = "Image";
+    const FULL_NAME: &'static str = "llm_caller.v1.Image";
+    const TYPE_URL: &'static str = "type.googleapis.com/llm_caller.v1.Image";
+}
+impl ::buffa::Message for Image {
+    /// Returns the total encoded size in bytes.
+    ///
+    /// Accumulates in `u64` (which cannot overflow for in-memory
+    /// data) and saturates to `u32` at return, so a message whose
+    /// encoded size exceeds the 2 GiB protobuf limit yields a value
+    /// above [`::buffa::MAX_MESSAGE_BYTES`] that the encode entry
+    /// points reject, never a silently wrapped size.
+    #[allow(clippy::let_and_return)]
+    fn compute_size(&self, _cache: &mut ::buffa::SizeCache) -> u32 {
+        #[allow(unused_imports)]
+        use ::buffa::Enumeration as _;
+        let mut size = 0u64;
+        if !self.data.is_empty() {
+            size += 1u64 + ::buffa::types::bytes_encoded_len(&self.data) as u64;
+        }
+        if !self.mime_type.is_empty() {
+            size += 1u64 + ::buffa::types::string_encoded_len(&self.mime_type) as u64;
+        }
+        size += self.__buffa_unknown_fields.encoded_len() as u64;
+        ::buffa::saturate_size(size)
+    }
+    fn write_to(
+        &self,
+        _cache: &mut ::buffa::SizeCache,
+        buf: &mut impl ::buffa::EncodeSink,
+    ) {
+        #[allow(unused_imports)]
+        use ::buffa::Enumeration as _;
+        if !self.data.is_empty() {
+            ::buffa::types::put_shared_bytes_field(1u32, &self.data, buf);
+        }
+        if !self.mime_type.is_empty() {
+            ::buffa::types::put_string_field(2u32, &self.mime_type, buf);
+        }
+        self.__buffa_unknown_fields.write_to(buf);
+    }
+    fn merge_field(
+        &mut self,
+        tag: ::buffa::encoding::Tag,
+        buf: &mut impl ::buffa::bytes::Buf,
+        ctx: ::buffa::DecodeContext<'_>,
+    ) -> ::core::result::Result<(), ::buffa::DecodeError> {
+        #[allow(unused_imports)]
+        use ::buffa::bytes::Buf as _;
+        #[allow(unused_imports)]
+        use ::buffa::Enumeration as _;
+        match tag.field_number() {
+            1u32 => {
+                ::buffa::encoding::check_wire_type(
+                    tag,
+                    ::buffa::encoding::WireType::LengthDelimited,
+                )?;
+                ::buffa::types::merge_bytes(&mut self.data, buf)?;
+            }
+            2u32 => {
+                ::buffa::encoding::check_wire_type(
+                    tag,
+                    ::buffa::encoding::WireType::LengthDelimited,
+                )?;
+                ::buffa::types::merge_string(&mut self.mime_type, buf)?;
+            }
+            _ => {
+                self.__buffa_unknown_fields
+                    .push(::buffa::encoding::decode_unknown_field(tag, buf, ctx)?);
+            }
+        }
+        ::core::result::Result::Ok(())
+    }
+    fn clear(&mut self) {
+        self.data.clear();
+        self.mime_type.clear();
+        self.__buffa_unknown_fields.clear();
+    }
+}
+impl ::buffa::ExtensionSet for Image {
+    const PROTO_FQN: &'static str = "llm_caller.v1.Image";
+    fn unknown_fields(&self) -> &::buffa::UnknownFields {
+        &self.__buffa_unknown_fields
+    }
+    fn unknown_fields_mut(&mut self) -> &mut ::buffa::UnknownFields {
+        &mut self.__buffa_unknown_fields
+    }
+}
+impl ::buffa::json_helpers::ProtoElemJson for Image {
+    fn serialize_proto_json<S: ::serde::Serializer>(
+        v: &Self,
+        s: S,
+    ) -> ::core::result::Result<S::Ok, S::Error> {
+        ::serde::Serialize::serialize(v, s)
+    }
+    fn deserialize_proto_json<'de, D: ::serde::Deserializer<'de>>(
+        d: D,
+    ) -> ::core::result::Result<Self, D::Error> {
+        <Self as ::serde::Deserialize>::deserialize(d)
+    }
+}
+#[doc(hidden)]
+pub const __IMAGE_JSON_ANY: ::buffa::type_registry::JsonAnyEntry = ::buffa::type_registry::JsonAnyEntry {
+    type_url: "type.googleapis.com/llm_caller.v1.Image",
+    to_json: ::buffa::type_registry::any_to_json::<Image>,
+    from_json: ::buffa::type_registry::any_from_json::<Image>,
     is_wkt: false,
 };
 /// Model, effort and temperature come from the service configuration (one instance = one
@@ -1318,6 +1507,13 @@ pub mod __buffa {
             pub role: &'a str,
             /// Field 2: `content`
             pub content: &'a str,
+            /// Pictures for the model to look at (user messages only), e.g. a screenshot.
+            ///
+            /// Field 3: `images`
+            pub images: ::buffa::RepeatedView<
+                'a,
+                super::super::__buffa::view::ImageView<'a>,
+            >,
             pub __buffa_unknown_fields: ::buffa::UnknownFieldsView<'a>,
         }
         impl<'a> ::buffa::MessageView<'a> for ChatMessageView<'a> {
@@ -1370,6 +1566,26 @@ pub mod __buffa {
                         )?;
                         view.content = ::buffa::types::borrow_str(&mut cur)?;
                     }
+                    3u32 => {
+                        ::buffa::encoding::check_wire_type(
+                            tag,
+                            ::buffa::encoding::WireType::LengthDelimited,
+                        )?;
+                        let __sub_ctx = ctx.descend()?;
+                        let sub = ::buffa::types::borrow_bytes(&mut cur)?;
+                        ctx.register_element_memory(
+                            ::core::mem::size_of::<
+                                super::super::__buffa::view::ImageView,
+                            >(),
+                        )?;
+                        view.images
+                            .push(
+                                <super::super::__buffa::view::ImageView as ::buffa::MessageView>::decode_view_ctx(
+                                    sub,
+                                    __sub_ctx,
+                                )?,
+                            );
+                    }
                     _ => {
                         ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
                         let span_len = before_tag.len() - cur.len();
@@ -1401,6 +1617,11 @@ pub mod __buffa {
                 ::core::result::Result::Ok(super::super::ChatMessage {
                     role: self.role.to_string(),
                     content: self.content.to_string(),
+                    images: self
+                        .images
+                        .iter()
+                        .map(|v| v.to_owned_from_source(__buffa_src))
+                        .collect::<::core::result::Result<_, ::buffa::DecodeError>>()?,
                     __buffa_unknown_fields: self
                         .__buffa_unknown_fields
                         .to_owned()?
@@ -1411,7 +1632,7 @@ pub mod __buffa {
         }
         impl<'a> ::buffa::ViewEncode<'a> for ChatMessageView<'a> {
             #[allow(clippy::needless_borrow, clippy::let_and_return)]
-            fn compute_size(&self, _cache: &mut ::buffa::SizeCache) -> u32 {
+            fn compute_size(&self, __cache: &mut ::buffa::SizeCache) -> u32 {
                 #[allow(unused_imports)]
                 use ::buffa::Enumeration as _;
                 let mut size = 0u64;
@@ -1423,13 +1644,21 @@ pub mod __buffa {
                         += 1u64
                             + ::buffa::types::string_encoded_len(&self.content) as u64;
                 }
+                for v in &self.images {
+                    let __slot = __cache.reserve();
+                    let inner_size = v.compute_size(__cache);
+                    __cache.set(__slot, inner_size);
+                    size
+                        += 1u64 + ::buffa::encoding::varint_len(inner_size as u64) as u64
+                            + inner_size as u64;
+                }
                 size += self.__buffa_unknown_fields.encoded_len() as u64;
                 ::buffa::saturate_size(size)
             }
             #[allow(clippy::needless_borrow)]
             fn write_to(
                 &self,
-                _cache: &mut ::buffa::SizeCache,
+                __cache: &mut ::buffa::SizeCache,
                 buf: &mut impl ::buffa::EncodeSink,
             ) {
                 #[allow(unused_imports)]
@@ -1439,6 +1668,14 @@ pub mod __buffa {
                 }
                 if !self.content.is_empty() {
                     ::buffa::types::put_string_field(2u32, &self.content, buf);
+                }
+                for v in &self.images {
+                    ::buffa::types::put_len_delimited_header(
+                        3u32,
+                        u64::from(__cache.consume_next()),
+                        buf,
+                    );
+                    v.write_to(__cache, buf);
                 }
                 self.__buffa_unknown_fields.write_to(buf);
             }
@@ -1466,6 +1703,9 @@ pub mod __buffa {
                 }
                 if !::buffa::json_helpers::skip_if::is_empty_str(self.content) {
                     __map.serialize_entry("content", self.content)?;
+                }
+                if !self.images.is_empty() {
+                    __map.serialize_entry("images", &*self.images)?;
                 }
                 __map.end()
             }
@@ -1572,6 +1812,15 @@ pub mod __buffa {
             pub fn content(&self) -> &'_ str {
                 self.0.reborrow().content
             }
+            /// Pictures for the model to look at (user messages only), e.g. a screenshot.
+            ///
+            /// Field 3: `images`
+            #[must_use]
+            pub fn images(
+                &self,
+            ) -> &::buffa::RepeatedView<'_, super::super::__buffa::view::ImageView<'_>> {
+                &self.0.reborrow().images
+            }
         }
         impl ::core::convert::From<::buffa::OwnedView<ChatMessageView<'static>>>
         for ChatMessageOwnedView {
@@ -1596,6 +1845,292 @@ pub mod __buffa {
             type ViewHandle = ChatMessageOwnedView;
         }
         impl ::serde::Serialize for ChatMessageOwnedView {
+            fn serialize<__S: ::serde::Serializer>(
+                &self,
+                __s: __S,
+            ) -> ::core::result::Result<__S::Ok, __S::Error> {
+                ::serde::Serialize::serialize(&self.0, __s)
+            }
+        }
+        /// One picture: image/png | image/jpeg | image/webp | image/gif, at most 5 MB.
+        #[derive(Clone, Debug, Default)]
+        pub struct ImageView<'a> {
+            /// Field 1: `data`
+            pub data: &'a [u8],
+            /// Field 2: `mime_type`
+            pub mime_type: &'a str,
+            pub __buffa_unknown_fields: ::buffa::UnknownFieldsView<'a>,
+        }
+        impl<'a> ::buffa::MessageView<'a> for ImageView<'a> {
+            type Owned = super::super::Image;
+            fn decode_view(
+                buf: &'a [u8],
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                let __limit = ::core::cell::Cell::new(
+                    ::buffa::DEFAULT_UNKNOWN_FIELD_LIMIT,
+                );
+                let __elem = ::core::cell::Cell::new(
+                    ::buffa::DEFAULT_ELEMENT_MEMORY_LIMIT,
+                );
+                <Self as ::buffa::MessageView>::decode_view_ctx(
+                    buf,
+                    ::buffa::DecodeContext::new(::buffa::RECURSION_LIMIT, &__limit)
+                        .with_element_memory(&__elem),
+                )
+            }
+            fn decode_view_with_ctx(
+                buf: &'a [u8],
+                ctx: ::buffa::DecodeContext<'_>,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                <Self as ::buffa::MessageView>::decode_view_ctx(buf, ctx)
+            }
+            #[inline]
+            fn merge_view_field(
+                &mut self,
+                tag: ::buffa::encoding::Tag,
+                cur: &'a [u8],
+                before_tag: &'a [u8],
+                ctx: ::buffa::DecodeContext<'_>,
+            ) -> ::core::result::Result<&'a [u8], ::buffa::DecodeError> {
+                let _ = ctx;
+                #[allow(unused_variables)]
+                let view = self;
+                let mut cur = cur;
+                match tag.field_number() {
+                    1u32 => {
+                        ::buffa::encoding::check_wire_type(
+                            tag,
+                            ::buffa::encoding::WireType::LengthDelimited,
+                        )?;
+                        view.data = ::buffa::types::borrow_bytes(&mut cur)?;
+                    }
+                    2u32 => {
+                        ::buffa::encoding::check_wire_type(
+                            tag,
+                            ::buffa::encoding::WireType::LengthDelimited,
+                        )?;
+                        view.mime_type = ::buffa::types::borrow_str(&mut cur)?;
+                    }
+                    _ => {
+                        ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
+                        let span_len = before_tag.len() - cur.len();
+                        view.__buffa_unknown_fields
+                            .push_record(before_tag, span_len, ctx)?;
+                    }
+                }
+                ::core::result::Result::Ok(cur)
+            }
+            fn to_owned_message(
+                &self,
+            ) -> ::core::result::Result<super::super::Image, ::buffa::DecodeError> {
+                self.to_owned_from_source(None)
+            }
+            #[allow(clippy::useless_conversion, clippy::needless_update)]
+            fn to_owned_from_source(
+                &self,
+                __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
+            ) -> ::core::result::Result<super::super::Image, ::buffa::DecodeError> {
+                #[allow(unused_imports)]
+                use ::buffa::alloc::string::ToString as _;
+                let _ = __buffa_src;
+                ::core::result::Result::Ok(super::super::Image {
+                    data: (self.data).to_vec(),
+                    mime_type: self.mime_type.to_string(),
+                    __buffa_unknown_fields: self
+                        .__buffa_unknown_fields
+                        .to_owned()?
+                        .into(),
+                    ..::core::default::Default::default()
+                })
+            }
+        }
+        impl<'a> ::buffa::ViewEncode<'a> for ImageView<'a> {
+            #[allow(clippy::needless_borrow, clippy::let_and_return)]
+            fn compute_size(&self, _cache: &mut ::buffa::SizeCache) -> u32 {
+                #[allow(unused_imports)]
+                use ::buffa::Enumeration as _;
+                let mut size = 0u64;
+                if !self.data.is_empty() {
+                    size += 1u64 + ::buffa::types::bytes_encoded_len(&self.data) as u64;
+                }
+                if !self.mime_type.is_empty() {
+                    size
+                        += 1u64
+                            + ::buffa::types::string_encoded_len(&self.mime_type) as u64;
+                }
+                size += self.__buffa_unknown_fields.encoded_len() as u64;
+                ::buffa::saturate_size(size)
+            }
+            #[allow(clippy::needless_borrow)]
+            fn write_to(
+                &self,
+                _cache: &mut ::buffa::SizeCache,
+                buf: &mut impl ::buffa::EncodeSink,
+            ) {
+                #[allow(unused_imports)]
+                use ::buffa::Enumeration as _;
+                if !self.data.is_empty() {
+                    ::buffa::types::put_shared_bytes_field(1u32, &self.data, buf);
+                }
+                if !self.mime_type.is_empty() {
+                    ::buffa::types::put_string_field(2u32, &self.mime_type, buf);
+                }
+                self.__buffa_unknown_fields.write_to(buf);
+            }
+        }
+        /// Serializes this view as protobuf JSON.
+        ///
+        /// Implicit-presence fields with default values are omitted, `required`
+        /// fields are always emitted, explicit-presence (`optional`) fields are
+        /// emitted only when set, bytes fields are base64-encoded, and enum
+        /// values are their proto name strings.
+        ///
+        /// This impl uses `serialize_map(None)` because the number of emitted
+        /// fields depends on default-omission rules; serializers that require
+        /// known map lengths (e.g. `bincode`) will return a runtime error.
+        /// Use the owned message type for those formats.
+        impl<'__a> ::serde::Serialize for ImageView<'__a> {
+            fn serialize<__S: ::serde::Serializer>(
+                &self,
+                __s: __S,
+            ) -> ::core::result::Result<__S::Ok, __S::Error> {
+                use ::serde::ser::SerializeMap as _;
+                let mut __map = __s.serialize_map(::core::option::Option::None)?;
+                if !::buffa::json_helpers::skip_if::is_empty_bytes(self.data) {
+                    __map
+                        .serialize_entry(
+                            "data",
+                            &::buffa::json_helpers::BytesJson(self.data),
+                        )?;
+                }
+                if !::buffa::json_helpers::skip_if::is_empty_str(self.mime_type) {
+                    __map.serialize_entry("mimeType", self.mime_type)?;
+                }
+                __map.end()
+            }
+        }
+        impl<'a> ::buffa::MessageName for ImageView<'a> {
+            const PACKAGE: &'static str = "llm_caller.v1";
+            const NAME: &'static str = "Image";
+            const FULL_NAME: &'static str = "llm_caller.v1.Image";
+            const TYPE_URL: &'static str = "type.googleapis.com/llm_caller.v1.Image";
+        }
+        ::buffa::impl_default_view_instance!(ImageView);
+        ::buffa::impl_view_reborrow!(ImageView);
+        /** Self-contained, `'static` owned view of a `Image` message.
+
+ Wraps [`::buffa::OwnedView`]`<`[`ImageView`]`<'static>>`: the decoded view and the [`::buffa::bytes::Bytes`] buffer it borrows from travel together, so the handle is `'static` and `Send + Sync` — suitable for async handlers, spawned tasks, and anywhere a `'static` bound is required.
+
+ Field accessors return borrows tied to `&self`. Use [`Self::view`] to get the full [`ImageView`] when you need struct patterns, iteration helpers, or to pass the view to lifetime-parameterised code.*/
+        #[derive(Clone, Debug)]
+        pub struct ImageOwnedView(::buffa::OwnedView<ImageView<'static>>);
+        impl ImageOwnedView {
+            /// Decode an owned view from a [`::buffa::bytes::Bytes`] buffer.
+            ///
+            /// The view borrows directly from the buffer's data; the buffer is
+            /// retained inside the returned handle.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`::buffa::DecodeError`] if the buffer contains invalid
+            /// protobuf data.
+            pub fn decode(
+                bytes: ::buffa::bytes::Bytes,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                ::core::result::Result::Ok(
+                    ImageOwnedView(::buffa::OwnedView::decode(bytes)?),
+                )
+            }
+            /// Decode with custom [`::buffa::DecodeOptions`] (recursion limit,
+            /// max message size).
+            ///
+            /// # Errors
+            ///
+            /// Returns [`::buffa::DecodeError`] if the buffer is invalid or
+            /// exceeds the configured limits.
+            pub fn decode_with_options(
+                bytes: ::buffa::bytes::Bytes,
+                opts: &::buffa::DecodeOptions,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                ::core::result::Result::Ok(
+                    ImageOwnedView(::buffa::OwnedView::decode_with_options(bytes, opts)?),
+                )
+            }
+            /// Build from an owned message via an encode → decode round-trip.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`::buffa::DecodeError::MessageTooLarge`] if the
+            /// message's encoded size exceeds the 2 GiB protobuf limit, or
+            /// another [`::buffa::DecodeError`] if the re-encoded bytes are
+            /// somehow invalid (should not happen for well-formed messages).
+            pub fn from_owned(
+                msg: &super::super::Image,
+            ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
+                ::core::result::Result::Ok(
+                    ImageOwnedView(::buffa::OwnedView::from_owned(msg)?),
+                )
+            }
+            /// Borrow the full [`ImageView`] with its lifetime tied to `&self`.
+            #[must_use]
+            pub fn view(&self) -> &ImageView<'_> {
+                self.0.reborrow()
+            }
+            /// Convert to the owned message type.
+            ///
+            /// Infallible: this type's constructors wire-decode their
+            /// buffer, and a view produced by wire decoding always
+            /// converts. Delegates to [`::buffa::OwnedView::to_owned_message`],
+            /// whose contract also governs handles converted from a raw
+            /// [`::buffa::OwnedView`].
+            #[must_use]
+            pub fn to_owned_message(&self) -> super::super::Image {
+                self.0.to_owned_message()
+            }
+            /// The underlying bytes buffer.
+            #[must_use]
+            pub fn bytes(&self) -> &::buffa::bytes::Bytes {
+                self.0.bytes()
+            }
+            /// Consume the handle, returning the underlying bytes buffer.
+            #[must_use]
+            pub fn into_bytes(self) -> ::buffa::bytes::Bytes {
+                self.0.into_bytes()
+            }
+            /// Field 1: `data`
+            #[must_use]
+            pub fn data(&self) -> &'_ [u8] {
+                self.0.reborrow().data
+            }
+            /// Field 2: `mime_type`
+            #[must_use]
+            pub fn mime_type(&self) -> &'_ str {
+                self.0.reborrow().mime_type
+            }
+        }
+        impl ::core::convert::From<::buffa::OwnedView<ImageView<'static>>>
+        for ImageOwnedView {
+            fn from(inner: ::buffa::OwnedView<ImageView<'static>>) -> Self {
+                ImageOwnedView(inner)
+            }
+        }
+        impl ::core::convert::From<ImageOwnedView>
+        for ::buffa::OwnedView<ImageView<'static>> {
+            fn from(wrapper: ImageOwnedView) -> Self {
+                wrapper.0
+            }
+        }
+        impl ::core::convert::AsRef<::buffa::OwnedView<ImageView<'static>>>
+        for ImageOwnedView {
+            fn as_ref(&self) -> &::buffa::OwnedView<ImageView<'static>> {
+                &self.0
+            }
+        }
+        impl ::buffa::HasMessageView for super::super::Image {
+            type View<'a> = ImageView<'a>;
+            type ViewHandle = ImageOwnedView;
+        }
+        impl ::serde::Serialize for ImageOwnedView {
             fn serialize<__S: ::serde::Serializer>(
                 &self,
                 __s: __S,
@@ -3681,6 +4216,7 @@ pub mod __buffa {
     /// Register this package's `Any` type entries and extension entries.
     pub fn register_types(reg: &mut ::buffa::type_registry::TypeRegistry) {
         reg.register_json_any(super::__CHAT_MESSAGE_JSON_ANY);
+        reg.register_json_any(super::__IMAGE_JSON_ANY);
         reg.register_json_any(super::__CALL_REQUEST_JSON_ANY);
         reg.register_json_any(super::__CALL_RESPONSE_JSON_ANY);
         reg.register_json_any(super::__CALL_PROGRESS_JSON_ANY);
@@ -3692,6 +4228,10 @@ pub mod __buffa {
 pub use self::__buffa::view::ChatMessageView;
 #[doc(inline)]
 pub use self::__buffa::view::ChatMessageOwnedView;
+#[doc(inline)]
+pub use self::__buffa::view::ImageView;
+#[doc(inline)]
+pub use self::__buffa::view::ImageOwnedView;
 #[doc(inline)]
 pub use self::__buffa::view::CallRequestView;
 #[doc(inline)]

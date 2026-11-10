@@ -1,0 +1,19 @@
+[package]
+name = "visioner"
+description = "Box 3: orchestrator. Screenshot from one screen sensor, asks K llm callers in parallel, streams progress."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Services depend ONLY on contracts + kernel + libs/* (+ plain libraries). Never on platform,
+# another service, tracing/opentelemetry (use the injected Logger/Metrics) or anyhow.
+[dependencies]
+contracts.workspace = true
+kernel.workspace = true
+clients.workspace = true    # client factories: instance id -> screen / llm client
+connectrpc.workspace = true
+futures.workspace = true
+tokio.workspace = true      # timeouts, channels
+
+[lints]
+workspace = true

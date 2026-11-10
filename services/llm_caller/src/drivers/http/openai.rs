@@ -8,11 +8,14 @@
 
 use serde_json::{Value, json};
 
-use super::base::{HttpFlavor, SseEvent, messages_json, parse_schema};
+use super::base::{ContentParts, HttpFlavor, SseEvent, messages_json, parse_schema};
 use crate::config::LlmSettings;
 use crate::domain::{Delta, LlmError, LlmRequest};
 
 pub struct OpenAi;
+
+const PARTS: ContentParts =
+    ContentParts { text_type: "input_text", image_part: |url| json!({ "type": "input_image", "image_url": url }) };
 
 impl HttpFlavor for OpenAi {
     fn default_base_url(&self) -> &'static str {
@@ -30,7 +33,7 @@ impl HttpFlavor for OpenAi {
     fn body(&self, settings: &LlmSettings, request: &LlmRequest) -> Value {
         let mut body = json!({
             "model": settings.model,
-            "input": messages_json(&request.messages),
+            "input": messages_json(&request.messages, &PARTS),
             "stream": true,
             "reasoning": { "effort": settings.effort },
             "text": { "format": json_format(request.json_schema.as_deref()) },

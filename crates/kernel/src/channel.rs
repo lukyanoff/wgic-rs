@@ -49,6 +49,24 @@ impl Channel {
     }
 }
 
+/// Makes a [`Channel`] to one named service instance (≈ C# `IChannelFactory`).
+///
+/// Over NATS the instance id is the subject prefix of the target host (`screen-1`, `llm-claude`), so
+/// `channel_to("screen-1")` reaches the host started with `NATS_PREFIX=screen-1`.
+pub trait ChannelFactory: Send + Sync {
+    /// A channel whose calls go to `instance`.
+    fn channel_to(&self, instance: &str) -> Channel;
+}
+
+/// The default factory: one channel for every id (HTTP to `UPSTREAM_ADDR`, or a single in-process router).
+pub(crate) struct SameChannel(pub Channel);
+
+impl ChannelFactory for SameChannel {
+    fn channel_to(&self, _instance: &str) -> Channel {
+        self.0.clone()
+    }
+}
+
 impl ClientTransport for Channel {
     type ResponseBody = ChannelBody;
     type Error = ConnectError;

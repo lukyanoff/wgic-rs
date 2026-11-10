@@ -7,6 +7,14 @@ message ChatMessage {
   // system | user | assistant
   string role = 1;
   string content = 2;
+  // Pictures for the model to look at (user messages only), e.g. a screenshot.
+  repeated Image images = 3;
+}
+
+// One picture: image/png | image/jpeg | image/webp | image/gif, at most 5 MB.
+message Image {
+  bytes data = 1;
+  string mime_type = 2;
 }
 
 // Model, effort and temperature come from the service configuration (one instance = one

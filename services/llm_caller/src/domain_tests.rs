@@ -31,7 +31,7 @@ fn caller(text: &str) -> LlmCaller {
 }
 
 fn user(text: &str) -> Vec<ChatMessage> {
-    vec![ChatMessage { role: Role::User, content: text.to_string() }]
+    vec![ChatMessage::new(Role::User, text.to_string())]
 }
 
 async fn run(caller: &LlmCaller) -> (Result<LlmAnswer, LlmError>, Vec<Progress>) {
@@ -90,9 +90,35 @@ fn schema_must_be_json() {
 
 #[test]
 fn chat_without_user_text_is_invalid() {
-    let only_system = vec![ChatMessage { role: Role::System, content: "be nice".into() }];
+    let only_system = vec![ChatMessage::new(Role::System, "be nice")];
     assert!(matches!(prepare(only_system, None), Err(LlmError::InvalidRequest(_))));
     assert!(matches!(prepare(user("  "), None), Err(LlmError::InvalidRequest(_))));
+}
+
+fn with_image(role: Role, mime_type: &str, bytes: usize) -> Vec<ChatMessage> {
+    let mut message = ChatMessage::new(role, "look");
+    message.images.push(Image { data: vec![0; bytes], mime_type: mime_type.into() });
+    vec![ChatMessage::new(Role::User, "hi"), message]
+}
+
+#[test]
+fn images_are_checked() {
+    assert!(prepare(with_image(Role::User, "image/png", 10), None).is_ok());
+    let bad = [
+        with_image(Role::Assistant, "image/png", 10), // only on user messages
+        with_image(Role::User, "image/tiff", 10),     // unknown type
+        with_image(Role::User, "image/png", 0),       // empty
+        with_image(Role::User, "image/png", MAX_IMAGE_BYTES + 1), // too big
+    ];
+    for messages in bad {
+        assert!(matches!(prepare(messages, None), Err(LlmError::InvalidRequest(_))));
+    }
+}
+
+#[test]
+fn with_images_the_instruction_allows_opening_them() {
+    let request = prepare(with_image(Role::User, "image/png", 10), None).unwrap();
+    assert!(request.messages[0].content.contains("open the attached image files"));
 }
 
 #[test]

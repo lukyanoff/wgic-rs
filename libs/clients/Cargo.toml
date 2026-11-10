@@ -1,0 +1,18 @@
+[package]
+name = "clients"
+description = "Box 3a (libs): client factories, one per service: instance id -> ready generated client."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Libs depend ONLY on contracts + kernel (+ plain libraries).
+[dependencies]
+contracts.workspace = true
+kernel.workspace = true
+connectrpc.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

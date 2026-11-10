@@ -1,40 +1,45 @@
 #!/usr/bin/env bash
-# Run one host process per sensor instance: 2 screens + 2 cameras.
+# Run one host process per sensor instance: 2 screens + 2 cameras. NATS only (no HTTP ports).
 #
-# Each instance gets its own HTTP port and its own NATS subject prefix, so a call always
-# reaches the device you mean (same-named services on the same subjects would be load-balanced).
+# Each instance gets its own NATS subject prefix (= instance id), so a call always reaches the device
+# you mean (same-named services on the same subjects would be load-balanced).
 #
-#   screen-1  http://127.0.0.1:8081  nats prefix screen-1   screen 0 (see ListDevices)
-#   screen-2  http://127.0.0.1:8082  nats prefix screen-2   screen 1
-#   cam-1     http://127.0.0.1:8083  nats prefix cam-1      camera 0
-#   cam-2     http://127.0.0.1:8084  nats prefix cam-2      camera 1
+#   screen-1  nats prefix screen-1   screen 0 (see ListDevices)
+#   screen-2  nats prefix screen-2   screen 1
+#   cam-1     nats prefix cam-1      camera 0
+#   cam-2     nats prefix cam-2      camera 1
 #
+# Screens send JPEG (SCREEN_FORMAT, default jpeg:85): a PNG of a large screen can pass NATS' 8 MB limit and
+# is too big for the LLMs the visioner sends it to.
 # Needs NATS (`podman compose up -d`). Override NATS_URL to use another server.
 # Ctrl+C stops all four.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+SCREEN_FORMAT="${SCREEN_FORMAT:-jpeg:85}"
+
 export NATS_URL="${NATS_URL:-nats://127.0.0.1:4222}"
-cargo build --quiet -p host
-host=target/debug/host
+# Send traces, logs and metrics to the OTel collector from compose (Jaeger :16686 shows the traces).
+export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4318}"
+source scripts/build-host.sh # sets $host
 
 pids=()
 stop_all() { kill "${pids[@]}" 2>/dev/null || true; }
 trap stop_all EXIT INT TERM
 
-# start <port> <service> <id> <env...>: the instance id doubles as the NATS prefix and the
-# NATS micro instance name (`nats micro ls` then shows screen_sensor-screen-1, ...).
+# start <service> <id> <env...>: the instance id is the NATS prefix, the NATS micro instance name
+# (`nats micro ls` shows screen_sensor-screen-1, ...) and the service name in Jaeger.
 start() {
-  local port=$1 service=$2 id=$3
-  shift 3
-  env SERVICES="$service" ADDR="127.0.0.1:$port" NATS_PREFIX="$id" NATS_INSTANCE="$id" "$@" "$host" &
+  local service=$1 id=$2
+  shift 2
+  env SERVICES="$service" HTTP_DISABLED=1 NATS_PREFIX="$id" NATS_INSTANCE="$id" OTEL_SERVICE_NAME="$id" "$@" "$host" &
   pids+=($!)
 }
 
-start 8081 screen_sensor screen-1 SCREEN_SENSOR_ID=screen-1 SCREEN_SENSOR_DEVICE=0
-start 8082 screen_sensor screen-2 SCREEN_SENSOR_ID=screen-2 SCREEN_SENSOR_DEVICE=1
-start 8083 camera_sensor cam-1    CAMERA_SENSOR_ID=cam-1    CAMERA_SENSOR_DEVICE=0
-start 8084 camera_sensor cam-2    CAMERA_SENSOR_ID=cam-2    CAMERA_SENSOR_DEVICE=1
+start screen_sensor screen-1 SCREEN_SENSOR_ID=screen-1 SCREEN_SENSOR_DEVICE=0 SCREEN_SENSOR_FORMAT="$SCREEN_FORMAT"
+start screen_sensor screen-2 SCREEN_SENSOR_ID=screen-2 SCREEN_SENSOR_DEVICE=1 SCREEN_SENSOR_FORMAT="$SCREEN_FORMAT"
+start camera_sensor cam-1    CAMERA_SENSOR_ID=cam-1    CAMERA_SENSOR_DEVICE=0
+start camera_sensor cam-2    CAMERA_SENSOR_ID=cam-2    CAMERA_SENSOR_DEVICE=1
 
-echo "run-sensors: started screen-1 :8081, screen-2 :8082, cam-1 :8083, cam-2 :8084 (Ctrl+C stops all)"
+echo "run-sensors: started screen-1, screen-2, cam-1, cam-2 on NATS (Ctrl+C stops all)"
 wait

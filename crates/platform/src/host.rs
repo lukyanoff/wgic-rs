@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::{Context, bail};
 use connectrpc::client::{ClientConfig, HttpClient};
 use futures::future::try_join_all;
-use kernel::{Channel, Deps, Module};
+use kernel::{Channel, ChannelFactory, Deps, Module};
 
 use crate::adapter::{Adapter, HttpAdapter, NatsAdapter};
 use crate::addr_from_env;
@@ -78,14 +78,26 @@ async fn client_deps_from_env() -> anyhow::Result<Deps> {
         let nc = async_nats::connect(config.url.as_str())
             .await
             .with_context(|| format!("connect to NATS at {}", config.url))?;
-        let channel = Channel::new(TracingTransport(NatsTransport::new(nc, config.prefix)));
+        let channels = NatsChannels { nc };
+        let channel = channels.channel_to(&config.prefix);
         // The base URI is unused by NatsTransport; only the RPC path becomes the subject.
-        return Ok(Deps::new(channel, ClientConfig::new("http://nats".parse()?)));
+        return Ok(Deps::new(channel, ClientConfig::new("http://nats".parse()?)).with_channels(channels));
     }
     let upstream = std::env::var("UPSTREAM_ADDR").unwrap_or_else(|_| addr_from_env());
     let channel = Channel::new(TracingTransport(HttpClient::plaintext()));
     let config = ClientConfig::new(format!("http://{upstream}").parse()?);
     Ok(Deps::new(channel, config))
+}
+
+/// `deps.channel_to("screen-1")` over NATS: the instance id is the subject prefix of the target host.
+struct NatsChannels {
+    nc: async_nats::Client,
+}
+
+impl ChannelFactory for NatsChannels {
+    fn channel_to(&self, instance: &str) -> Channel {
+        Channel::new(TracingTransport(NatsTransport::new(self.nc.clone(), instance)))
+    }
 }
 
 #[cfg(test)]

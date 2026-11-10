@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package visioner.v1;
+
+// Takes a screenshot from one screen sensor instance and asks K llm_caller instances, in parallel,
+// what they see. Streams progress from every step, then one result with every model's answer.
+// Which instances it calls is fixed by its configuration (VISIONER_SCREEN, VISIONER_LLMS).
+service VisionerService {
+  rpc Check(CheckRequest) returns (stream CheckResponse) {}
+}
+
+message CheckRequest {
+  // Empty → "What do you see on the screen?"
+  string question = 1;
+}
+
+// Zero or more `progress`, then one `result` (or an error).
+message CheckResponse {
+  oneof event {
+    CheckProgress progress = 1;
+    CheckResult result = 2;
+  }
+}
+
+message CheckProgress {
+  // "screen", or the llm instance id (e.g. "llm-claude").
+  string source = 1;
+  // screen: capturing | captured
+  // llm:    started | thinking | writing | done | failed | timeout
+  string stage = 2;
+  // The model's text so far (llm sources).
+  string partial_text = 3;
+  // Since Check started.
+  uint32 elapsed_ms = 4;
+}
+
+message CheckResult {
+  ScreenInfo screen = 1;
+  // One per configured llm instance, in configuration order. At least one has ok = true.
+  repeated LlmAnswer answers = 2;
+  uint64 duration_ms = 3;
+}
+
+message ScreenInfo {
+  string sensor_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  string mime_type = 4;
+  uint64 bytes = 5;
+  uint32 capture_ms = 6;
+}
+
+message LlmAnswer {
+  string caller_id = 1;
+  bool ok = 2;
+  // The model's answer as JSON: {"summary": "...", "details": ["..."]} (when ok).
+  string json = 3;
+  string text = 4;
+  // When not ok: a Connect code (unavailable, deadline_exceeded, ...) and its message.
+  string error_code = 5;
+  string error_message = 6;
+  uint64 duration_ms = 7;
+  string model = 8;
+}

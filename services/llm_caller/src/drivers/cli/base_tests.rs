@@ -5,7 +5,7 @@ use std::os::unix::process::ExitStatusExt;
 use super::*;
 
 fn msg(role: Role, content: &str) -> ChatMessage {
-    ChatMessage { role, content: content.to_string() }
+    ChatMessage::new(role, content.to_string())
 }
 
 #[test]
@@ -40,4 +40,23 @@ fn failed_exit_without_result_reports_stderr_tail() {
     };
     assert!(message.ends_with("the real reason"));
     assert!(message.len() < 600);
+}
+
+#[test]
+fn image_files_are_numbered_with_their_extension() {
+    let mut message = msg(Role::User, "look");
+    for mime_type in ["image/png", "image/jpeg"] {
+        message.images.push(Image { data: vec![1], mime_type: mime_type.into() });
+    }
+    let names: Vec<String> = image_files(&[message]).into_iter().map(|(name, _)| name).collect();
+    assert_eq!(names, ["image-1.png", "image-2.jpg"]);
+}
+
+#[test]
+fn work_dir_holds_the_files_and_is_deleted_on_drop() {
+    let work_dir = WorkDir::create(vec![("a.png".into(), vec![9])]).unwrap();
+    let path = work_dir.path().to_path_buf();
+    assert_eq!(std::fs::read(path.join("a.png")).unwrap(), [9]);
+    drop(work_dir);
+    assert!(!path.exists());
 }

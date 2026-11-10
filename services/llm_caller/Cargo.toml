@@ -11,6 +11,7 @@ publish.workspace = true
 contracts.workspace = true
 kernel.workspace = true
 connectrpc.workspace = true
+base64.workspace = true     # images as data URLs / base64 blocks
 futures.workspace = true
 reqwest.workspace = true    # HTTP drivers (OpenAI, OpenRouter)
 serde_json.workspace = true # CLI stream-json lines, SSE events, the JSON answer

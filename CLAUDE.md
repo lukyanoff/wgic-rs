@@ -20,7 +20,9 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 ## Rules
 
 1. **Stay in one box per change.** A service change touches `services/<name>/` (and its proto / e2e file). A lib change touches `libs/<name>/` and the services built on it. An infrastructure change touches `crates/platform/` only. `apps/host` changes only to add a service line.
-2. **Services never import `platform` or another service.** To call another service: its generated client + `Deps` (`XClient::new(deps.channel(), deps.client_config())`).
+2. **Services never import `platform` or another service.** To call another service instance by id, use its
+   client factory from `libs/clients`: `ScreenSensorClients::new(&deps).get("screen-1", timeout)` (over NATS the
+   id is the target host's `NATS_PREFIX`).
    Code that several services share (a "base class") goes in a lib under `libs/`; libs never import a service.
 3. **Every service has 3 test layers**: unit (`src/domain_tests.rs`), integration (`services/<name>/tests/*.rs`, in-process via `Deps::in_process`), e2e (`tests/e2e/tests/<name>.rs`, HTTP **and** NATS).
 4. **Write simple code** — use the `simple-code` skill for every code change. Readers are C#/Python/TS developers.
@@ -36,14 +38,16 @@ The goal of the layout is **low cognitive depth**: you can change one box withou
 
 ```sh
 podman compose up -d              # NATS, OTel collector, Jaeger :16686, Prometheus :9090, Grafana :3000
+scripts/run-all.sh [--prod]       # build + run everything on NATS (--prod: release build, low memory per process)
 scripts/verify.sh                 # definition of done: fmt, clippy, boxes, buf lint, all tests, web
 cargo test -p greet               # one service: unit + integration (no network)
 cargo test -p platform            # infrastructure only, no services compiled
 cargo test -p e2e --test greet    # one service end-to-end
 npm run gen                       # after any .proto change
 SERVICES=greet cargo run -p host  # run one service (default: all)
-scripts/run-sensors.sh            # 4 sensor instances (2 screens :8081-8082, 2 cameras :8083-8084), one process each
-scripts/run-llm-callers.sh        # 4 llm_caller instances (claude, agy, openai, openrouter :8091-8094), one process each
+scripts/run-sensors.sh            # 4 sensor instances (screen-1/2, cam-1/2), NATS only, one process each
+scripts/run-llm-callers.sh        # 4 llm_caller instances (llm-claude/agy/openai/openrouter), NATS only
+scripts/run-visioners.sh          # vision-1: screen-1 + llm-claude,llm-agy in parallel, NATS only
 curl -H 'Content-Type: application/json' -d '{"name":"Jane"}' localhost:8080/greet.v1.GreetService/Greet
 ```
 
@@ -59,4 +63,5 @@ fix the code, or ask the human.
 2. Copy the shape of `services/greet/` (`lib.rs`, `domain.rs`, `domain_tests.rs`, `handler.rs`, `tests/rpc.rs`, `CLAUDE.md`, `Cargo.toml`).
 3. Add `<name>.workspace = true` to `apps/host/Cargo.toml` + root `[workspace.dependencies]`, and one line in `all_modules()` in `apps/host/src/main.rs`.
 4. Add `tests/e2e/tests/<name>.rs` (HTTP + NATS).
-5. `scripts/verify.sh`.
+5. Add its client factory: copy `libs/clients/src/greet.rs` to `libs/clients/src/<name>.rs`, rename, export in `lib.rs`.
+6. `scripts/verify.sh`.

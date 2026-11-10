@@ -33,8 +33,8 @@ fn text_without_json_is_none() {
 
 #[test]
 fn instruction_contains_the_schema() {
-    assert!(json_instruction(Some(r#"{"type":"object"}"#)).contains(r#"{"type":"object"}"#));
-    assert!(json_instruction(None).contains("JSON object or array"));
+    assert!(json_instruction(Some(r#"{"type":"object"}"#), false).contains(r#"{"type":"object"}"#));
+    assert!(json_instruction(None, false).contains("JSON object or array"));
 }
 
 #[test]

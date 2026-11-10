@@ -78,6 +78,20 @@ pub fn is_streaming(content_type: Option<&str>) -> bool {
     content_type.is_some_and(|value| value.trim().starts_with("application/connect+"))
 }
 
+/// A clearer message when a unary request (`application/json`) reaches a streaming method. Every NATS
+/// endpoint exists because its host has that method, so "method not found" to a unary request means
+/// the method is streaming and the request must use the streaming protocol. `None` = keep the message.
+pub fn streaming_hint(code: &str, message: &str, request_content_type: Option<&str>) -> Option<String> {
+    if code != "unimplemented" || !message.starts_with("method not found") || is_streaming(request_content_type) {
+        return None;
+    }
+    let path = message.trim_start_matches("method not found:").trim();
+    Some(format!(
+        "{path} is a streaming method: send Content-Type application/connect+json (or +proto) with an \
+         enveloped body, e.g. from the playground's RPC tab (the NATS tab and `nats req` send unary requests)"
+    ))
+}
+
 /// Connect's HTTP status → code mapping, for errors from non-connect micro services.
 pub fn code_for_status(status: u16) -> &'static str {
     match status {

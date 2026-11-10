@@ -15,6 +15,12 @@ pub mod proto {
             include!("gen/connect/llm_caller.v1.rs");
         }
     }
+    pub mod visioner {
+        pub mod v1 {
+            include!("gen/buffa/visioner.v1.rs");
+            include!("gen/connect/visioner.v1.rs");
+        }
+    }
     pub mod sensor {
         pub mod v1 {
             include!("gen/buffa/sensor.v1.rs");

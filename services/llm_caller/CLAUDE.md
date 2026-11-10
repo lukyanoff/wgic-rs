@@ -29,6 +29,12 @@ instance gets one injected driver and a fixed model / effort / temperature (from
   - API keys: `OPENAI_API_KEY` and `OPENROUTER_API_KEY`. A missing key fails the call, not the startup.
 - agy is an agent (it ran shell commands and web searches unasked). It runs with `--sandbox --mode plan` in an empty temp
   folder, and the JSON instruction says "do not use tools". Its tool steps show up as `thinking`.
+- Images (`ChatMessage.images[{data, mime_type}]`, user messages only, png/jpeg/webp/gif, ≤ 5 MB):
+  - claude: always `--input-format stream-json`; one stdin line with base64 image blocks + the transcript.
+  - agy: it takes only text on stdin, so images become files `image-1.png`… in the call's own work folder
+    (`temp/llm_caller/<pid>-<n>`, deleted after the call); the prompt names them, and the JSON instruction allows
+    opening only those files.
+  - OpenAI: `input_image` data URL parts. OpenRouter: `image_url` data URL parts.
 - With `json_schema`:
   - claude and agy get `--json-schema`; their `structured_output` wins over the text.
   - OpenAI and OpenRouter get a non-strict `json_schema` format.

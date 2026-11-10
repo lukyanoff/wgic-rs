@@ -15,6 +15,9 @@ src/telemetry/      init.rs (traces/logs/metrics providers) · logs.rs (JSON) ·
                     log_backend.rs (TracingLogs) · metrics_backend.rs (OtelMetrics) · test_meter.rs (tests only)
 ```
 
+- `host.rs::NatsChannels` implements `kernel::ChannelFactory`: `deps.channel_to("screen-1")` → NATS prefix `screen-1`.
+- `traced_service` enforces the client's deadline on streams too (`DeadlinePolicy::with_enforce_on_streams`): when
+  `connect-timeout-ms` passes, the stream ends with `deadline_exceeded` and the handler's stream is dropped (cancel).
 - May depend on `kernel` only. Errors: `anyhow::Result` + `.context(...)`.
 - New transport (e.g. JetStream)? Implement `Adapter` in a new file; register it in `host.rs::adapters_from_env`.
 - Keep wire-format logic as pure functions in `nats/wire.rs` so it is unit-testable.

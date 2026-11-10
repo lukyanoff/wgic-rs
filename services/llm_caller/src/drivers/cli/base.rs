@@ -8,16 +8,17 @@
 // Usings
 // ---------------------------------------------------------------------------------------------
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::mpsc;
 
 use crate::config::LlmSettings;
-use crate::domain::{ChatMessage, Delta, DriverFuture, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
+use crate::domain::{ChatMessage, Delta, DriverFuture, Image, LlmDriver, LlmError, LlmReply, LlmRequest, Role};
 
 // ---------------------------------------------------------------------------------------------
 // Interface: what differs per CLI (≈ the abstract members of `CliCallerBase`)
@@ -41,6 +42,11 @@ pub trait CliFlavor: Send + Sync {
     /// Text written to stdin; `None` = stdin stays empty (the prompt is in `args`).
     fn stdin(&self, request: &LlmRequest) -> Option<String>;
     fn parse_line(&self, line: &str) -> LineEvent;
+    /// Files written into the call's own work folder before the CLI starts, as (name, bytes).
+    /// Default: none. agy gets the images this way, because it reads pictures only from files.
+    fn files(&self, _request: &LlmRequest) -> Vec<(String, Vec<u8>)> {
+        Vec::new()
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -71,7 +77,8 @@ impl CliCaller {
         request: LlmRequest,
         deltas: mpsc::UnboundedSender<Delta>,
     ) -> Result<LlmReply, LlmError> {
-        let mut child = self.spawn(&request)?;
+        let work_dir = WorkDir::create(self.flavor.files(&request))?; // deleted when this call ends
+        let mut child = self.spawn(&request, work_dir.path())?;
         write_stdin(&mut child, self.flavor.stdin(&request)).await?;
         let stderr = tokio::spawn(read_all(child.stderr.take()));
         let stdout = child.stdout.take().expect("stdout is piped");
@@ -91,12 +98,12 @@ impl CliCaller {
         finish(done, status, &stderr)
     }
 
-    fn spawn(&self, request: &LlmRequest) -> Result<Child, LlmError> {
+    fn spawn(&self, request: &LlmRequest, work_dir: &Path) -> Result<Child, LlmError> {
         let program = self.settings.cli_path.clone().unwrap_or_else(|| self.flavor.program().to_string());
         let mut command = Command::new(&program);
         command
             .args(self.flavor.args(&self.settings, request))
-            .current_dir(work_dir())
+            .current_dir(work_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -121,11 +128,35 @@ impl LlmDriver for CliCaller {
 // Helpers
 // ---------------------------------------------------------------------------------------------
 
-/// An empty folder to run in, so an agent-style CLI finds no project files to look at.
-fn work_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join("llm_caller");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+/// The call's own folder to run in: empty except for the flavor's files, so an agent-style CLI finds no
+/// project files to look at. Deleted when dropped (≈ C# `IDisposable`), also on cancel and timeout.
+struct WorkDir {
+    path: PathBuf,
+}
+
+impl WorkDir {
+    fn create(files: Vec<(String, Vec<u8>)>) -> Result<WorkDir, LlmError> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let name = format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
+        let path = std::env::temp_dir().join("llm_caller").join(name);
+        let work_dir = WorkDir { path };
+        std::fs::create_dir_all(&work_dir.path).map_err(|e| LlmError::Failed(format!("create work folder: {e}")))?;
+        for (name, bytes) in files {
+            std::fs::write(work_dir.path.join(&name), bytes)
+                .map_err(|e| LlmError::Failed(format!("write {name}: {e}")))?;
+        }
+        Ok(work_dir)
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for WorkDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
 
 async fn write_stdin(child: &mut Child, text: Option<String>) -> Result<(), LlmError> {
@@ -194,6 +225,21 @@ pub fn transcript(messages: &[ChatMessage]) -> String {
         text.push_str(&format!("\n{speaker}: {}\n", message.content));
     }
     text
+}
+
+/// Every image in the chat with a file name: `image-1.png`, `image-2.jpg`, ...
+pub fn image_files(messages: &[ChatMessage]) -> Vec<(String, &Image)> {
+    let mut files = Vec::new();
+    for image in messages.iter().flat_map(|m| m.images.iter()) {
+        let extension = match image.mime_type.as_str() {
+            "image/jpeg" => "jpg",
+            "image/webp" => "webp",
+            "image/gif" => "gif",
+            _ => "png",
+        };
+        files.push((format!("image-{}.{extension}", files.len() + 1), image));
+    }
+    files
 }
 
 #[cfg(test)]

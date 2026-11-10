@@ -426,6 +426,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "clients"
+version = "0.1.0"
+dependencies = [
+ "connectrpc",
+ "contracts",
+ "kernel",
+ "tokio",
+]
+
+[[package]]
 name = "cocoa"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1221,6 +1231,7 @@ dependencies = [
  "screen_sensor",
  "tokio",
  "tracing",
+ "visioner",
 ]
 
 [[package]]
@@ -1677,6 +1688,7 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 name = "llm_caller"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "connectrpc",
  "contracts",
  "futures",
@@ -3793,6 +3805,18 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "visioner"
+version = "0.1.0"
+dependencies = [
+ "clients",
+ "connectrpc",
+ "contracts",
+ "futures",
+ "kernel",
+ "tokio",
+]
 
 [[package]]
 name = "want"

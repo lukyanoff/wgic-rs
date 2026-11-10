@@ -7,6 +7,8 @@
 //! let client = GreetServiceClient::new(deps.channel(), deps.client_config());
 //! ```
 
+pub mod fake_openai;
+
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -56,6 +58,11 @@ impl Host {
             .expect("start host binary");
         wait_until_ready(&mut child);
         Host { child, addr, nats_prefix }
+    }
+
+    /// The NATS subject prefix (= instance id) of this host, for a service that calls it by id.
+    pub fn nats_prefix(&self) -> &str {
+        &self.nats_prefix
     }
 
     /// Deps whose channel calls this host over HTTP (Connect protocol).
