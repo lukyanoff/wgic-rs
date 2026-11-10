@@ -3,7 +3,6 @@
     "@bufbuild/buf": "^1.75.0"
   },
   "scripts": {
-    "gen": "buf generate && npm run gen:descriptors && cargo fmt",
-    "gen:descriptors": "buf build -o web/public/descriptors.binpb"
+    "gen": "buf build -o web/public/descriptors.binpb"
   }
 }

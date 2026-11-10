@@ -161,35 +161,39 @@ pub async fn serve_endpoint(
 
         let handle = tokio::spawn(async move {
             while let Some(msg) = sub.next().await {
-                let Some(reply) = msg.reply.clone() else { continue };
-                let nc_req = nc_clone.clone();
-                let ep_req = ep_clone.clone();
-                let m_name = method_name.clone();
-
-                tokio::spawn(async move {
-                    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-                    let nc_prog = nc_req.clone();
-                    let reply_prog = reply.clone();
-
-                    let prog_task = tokio::spawn(async move {
-                        while let Some(step) = rx.recv().await {
-                            let frame = StreamFrame::Progress(step).encode();
-                            let _ = nc_prog.publish(reply_prog.clone(), frame.into()).await;
-                        }
-                    });
-
-                    let res = ep_req.dispatch(&m_name, &msg.payload, ProgressSender::new(tx)).await;
-                    let _ = prog_task.await;
-
-                    let final_frame = match res {
-                        Ok(bytes) => StreamFrame::Ok(bytes).encode(),
-                        Err(err) => StreamFrame::Err(err).encode(),
-                    };
-                    let _ = nc_req.publish(reply, final_frame.into()).await;
-                });
+                tokio::spawn(handle_request(nc_clone.clone(), ep_clone.clone(), method_name.clone(), msg));
             }
         });
         handles.push(handle);
     }
     Ok(handles)
+}
+
+/// Runs one RPC call: streams progress frames to the reply inbox, then the terminal Ok/Err frame.
+async fn handle_request(
+    nc: async_nats::Client,
+    endpoint: Arc<dyn RawRpcEndpoint>,
+    method: String,
+    msg: async_nats::Message,
+) {
+    let Some(reply) = msg.reply.clone() else { return };
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let nc_prog = nc.clone();
+    let reply_prog = reply.clone();
+
+    let prog_task = tokio::spawn(async move {
+        while let Some(step) = rx.recv().await {
+            let frame = StreamFrame::Progress(step).encode();
+            let _ = nc_prog.publish(reply_prog.clone(), frame.into()).await;
+        }
+    });
+
+    let res = endpoint.dispatch(&method, &msg.payload, ProgressSender::new(tx)).await;
+    let _ = prog_task.await;
+
+    let final_frame = match res {
+        Ok(bytes) => StreamFrame::Ok(bytes).encode(),
+        Err(err) => StreamFrame::Err(err).encode(),
+    };
+    let _ = nc.publish(reply, final_frame.into()).await;
 }

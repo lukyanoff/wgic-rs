@@ -1,4 +1,4 @@
-use crate::drivers::cli::run_cli;
+use crate::drivers::cli::{images_note, run_cli};
 use crate::drivers::{Driver, LlmOutput, PromptArgs};
 use async_trait::async_trait;
 use sdk::RpcError;
@@ -20,12 +20,8 @@ impl Driver for ClaudeDriver {
         let prompt = args.combined_prompt();
         let model = self.model.clone();
 
-        let text = run_cli(&self.binary, &args.images, |image_paths| {
-            let mut full_prompt = prompt;
-            for path in image_paths {
-                full_prompt.push_str(&format!("\n[Image: {}]", path.display()));
-            }
-            vec!["-p".to_string(), full_prompt]
+        let text = run_cli(&self.binary, &args.images, |names| {
+            vec!["-p".to_string(), format!("{prompt}{}", images_note(names))]
         })
         .await?;
 

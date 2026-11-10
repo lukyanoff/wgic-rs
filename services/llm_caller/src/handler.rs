@@ -18,10 +18,7 @@ pub struct LlmCallerHandler {
 }
 
 impl LlmCallerHandler {
-    pub fn new(
-        driver: Arc<dyn Driver>,
-        state: Arc<dyn IStateStore<LlmInstanceState>>,
-    ) -> Self {
+    pub fn new(driver: Arc<dyn Driver>, state: Arc<dyn IStateStore<LlmInstanceState>>) -> Self {
         Self { driver, state }
     }
 }
@@ -29,11 +26,7 @@ impl LlmCallerHandler {
 #[async_trait]
 impl ILlmCallerService for LlmCallerHandler {
     #[tracing::instrument(skip(self, req, progress))]
-    async fn call(
-        &self,
-        req: LlmCallRequest,
-        progress: ProgressSender,
-    ) -> Result<LlmCallResponse, RpcError> {
+    async fn call(&self, req: LlmCallRequest, progress: ProgressSender) -> Result<LlmCallResponse, RpcError> {
         if req.user_prompt.trim().is_empty() {
             return Err(RpcError::invalid_arg("user_prompt must not be empty"));
         }
@@ -44,14 +37,7 @@ impl ILlmCallerService for LlmCallerHandler {
             system_prompt: req.system_prompt,
             text_prompt: req.text_prompt,
             user_prompt: req.user_prompt,
-            images: req
-                .images
-                .into_iter()
-                .map(|i| ImageArg {
-                    data: i.data,
-                    mime_type: i.mime_type,
-                })
-                .collect(),
+            images: req.images.into_iter().map(|i| ImageArg { data: i.data, mime_type: i.mime_type }).collect(),
         };
 
         let out = self.driver.call(args).await?;
@@ -68,10 +54,7 @@ impl ILlmCallerService for LlmCallerHandler {
         progress.report("response received");
         tracing::info!(model = %out.model, chars = out.text.len(), "LLM call succeeded");
 
-        Ok(LlmCallResponse {
-            text: out.text,
-            model: out.model,
-        })
+        Ok(LlmCallResponse { text: out.text, model: out.model })
     }
 }
 

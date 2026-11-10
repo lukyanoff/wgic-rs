@@ -2,7 +2,7 @@ use crate::drivers::{Driver, LlmOutput, PromptArgs};
 use async_trait::async_trait;
 use base64::Engine;
 use sdk::RpcError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub struct HttpDriver {
     endpoint: String,
@@ -13,12 +13,7 @@ pub struct HttpDriver {
 
 impl HttpDriver {
     pub fn new(endpoint: String, api_key: String, model: String) -> Self {
-        Self {
-            endpoint,
-            api_key,
-            model,
-            client: reqwest::Client::new(),
-        }
+        Self { endpoint, api_key, model, client: reqwest::Client::new() }
     }
 }
 
@@ -70,33 +65,20 @@ impl Driver for HttpDriver {
             req = req.bearer_auth(&self.api_key);
         }
 
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| RpcError::internal(format!("http llm request failed: {e}")))?;
+        let resp = req.send().await.map_err(|e| RpcError::internal(format!("http llm request failed: {e}")))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let err_body = resp.text().await.unwrap_or_default();
-            return Err(RpcError::internal(format!(
-                "http llm returned {status}: {err_body}"
-            )));
+            return Err(RpcError::internal(format!("http llm returned {status}: {err_body}")));
         }
 
-        let payload: Value = resp
-            .json()
-            .await
-            .map_err(|e| RpcError::internal(format!("http llm invalid json: {e}")))?;
+        let payload: Value =
+            resp.json().await.map_err(|e| RpcError::internal(format!("http llm invalid json: {e}")))?;
 
-        let text = payload["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let text = payload["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
 
-        let model = payload["model"]
-            .as_str()
-            .unwrap_or(&self.model)
-            .to_string();
+        let model = payload["model"].as_str().unwrap_or(&self.model).to_string();
 
         Ok(LlmOutput { text, model })
     }

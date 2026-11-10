@@ -4,6 +4,6 @@ Generic UI that calls any method of any service from `web/public/descriptors.bin
 `npm run gen`). No per-service code: a new proto service appears automatically.
 
 - Verify: `npm run verify` (tsc + oxlint + oxfmt check). Format: `npm run format`.
-- Readability limits are in `.oxlintrc.json`. Existing code still has 27 warnings
-  (`oxlint --max-warnings 27` in package.json). **Lower that number when you refactor; never raise it.**
+- Readability limits are in `.oxlintrc.json`. Existing code still has 4 warnings
+  (`oxlint --max-warnings 4` in package.json). **Lower that number when you refactor; never raise it.**
 - Style: no semicolons, single quotes, width 120 (`.oxfmtrc.json`).

@@ -26,17 +26,25 @@ impl PromptArgs {
     pub fn combined_prompt(&self) -> String {
         let mut parts = Vec::new();
         if !self.system_prompt.trim().is_empty() {
-            parts.push(format!("System:
-{}", self.system_prompt.trim()));
+            parts.push(format!(
+                "System:
+{}",
+                self.system_prompt.trim()
+            ));
         }
         if !self.text_prompt.trim().is_empty() {
-            parts.push(format!("Context:
-{}", self.text_prompt.trim()));
+            parts.push(format!(
+                "Context:
+{}",
+                self.text_prompt.trim()
+            ));
         }
         parts.push(self.user_prompt.trim().to_string());
-        parts.join("
+        parts.join(
+            "
 
-")
+",
+        )
     }
 }
 

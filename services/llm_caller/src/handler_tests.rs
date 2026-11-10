@@ -6,10 +6,7 @@ struct MockDriver;
 #[async_trait]
 impl Driver for MockDriver {
     async fn call(&self, args: PromptArgs) -> Result<LlmOutput, RpcError> {
-        Ok(LlmOutput {
-            text: format!("echo: {}", args.user_prompt),
-            model: "mock-model".into(),
-        })
+        Ok(LlmOutput { text: format!("echo: {}", args.user_prompt), model: "mock-model".into() })
     }
 }
 

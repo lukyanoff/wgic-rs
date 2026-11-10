@@ -2,47 +2,17 @@ syntax = "proto3";
 
 package sensor.v1;
 
-// Takes a picture with this instance's sensor: a screen or a camera, chosen by its configuration
-// (SENSOR_KIND, SENSOR_DEVICE, SENSOR_FORMAT). Run one instance per device.
+// Mirrors the hand-written prost structs in crates/contracts/src/lib.rs (the Rust source of truth).
+// Used only for the web playground's descriptors. Keep both in sync.
+
+// Takes a picture with this instance's sensor (screen, camera or fake), chosen by --config.
 service SensorService {
   rpc Capture(CaptureRequest) returns (CaptureResponse) {}
-  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse) {}
 }
 
 message CaptureRequest {}
 
 message CaptureResponse {
-  // PNG or JPEG file bytes.
-  bytes image = 1;
-  ImageMetadata metadata = 2;
-}
-
-message ListDevicesRequest {}
-
-message ListDevicesResponse {
-  repeated DeviceInfo devices = 1;
-}
-
-message ImageMetadata {
-  // Instance id from config, e.g. "screen-1" or "cam-1".
-  string sensor_id = 1;
-  // "screen" or "camera".
-  string kind = 2;
-  uint32 width = 3;
-  uint32 height = 4;
-  // "image/png" or "image/jpeg".
-  string mime_type = 5;
-  // The device the picture came from, e.g. "HDMI-0" or "Integrated Camera".
-  string device_name = 6;
-  uint32 device_index = 7;
-  int64 captured_at_unix_ms = 8;
-  uint32 capture_ms = 9;
-}
-
-// One device the sensor can capture from.
-message DeviceInfo {
-  uint32 index = 1;
-  string name = 2;
-  // The device used when SENSOR_DEVICE is not set (primary monitor, first camera).
-  bool is_default = 3;
+  bytes data = 1;
+  string mime_type = 2;
 }
