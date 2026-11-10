@@ -9,7 +9,8 @@ import {
 } from '@bufbuild/protobuf'
 import { ConnectError, type Interceptor, type Transport } from '@connectrpc/connect'
 import { createConnectTransport, createGrpcWebTransport } from '@connectrpc/connect-web'
-import type { ServerEntry } from './servers'
+import { natsFetch } from './nats'
+import { DEFAULT_NATS_PREFIX, type ServerEntry } from './servers'
 
 export type Protocol = 'connect-json' | 'connect-binary' | 'grpc-web'
 
@@ -35,6 +36,17 @@ export interface CallResult {
 }
 
 function makeTransport(server: ServerEntry, protocol: Protocol, registry: Registry): Transport {
+  const jsonOptions = { registry }
+  if (server.mode === 'nats') {
+    if (protocol === 'grpc-web') throw new ConnectError('gRPC-web is not available over NATS; use Connect')
+    return createConnectTransport({
+      // Unused by natsFetch except for the RPC path, which becomes the subject.
+      baseUrl: 'http://nats',
+      fetch: natsFetch(server.url, server.prefix ?? DEFAULT_NATS_PREFIX),
+      useBinaryFormat: protocol === 'connect-binary',
+      jsonOptions,
+    })
+  }
   const interceptors: Interceptor[] = []
   let baseUrl = server.url.replace(/\/+$/, '')
   if (server.mode === 'proxy') {
@@ -44,7 +56,6 @@ function makeTransport(server: ServerEntry, protocol: Protocol, registry: Regist
       return next(req)
     })
   }
-  const jsonOptions = { registry }
   if (protocol === 'grpc-web') {
     return createGrpcWebTransport({ baseUrl, interceptors, useBinaryFormat: true, jsonOptions })
   }
@@ -60,20 +71,28 @@ function entries(h: Headers): [string, string][] {
   return [...h.entries()]
 }
 
-export function isBrowserSupported(method: DescMethod): boolean {
+export function isBrowserSupported(method: DescMethod, server?: ServerEntry): boolean {
+  if (server?.mode === 'nats') return method.methodKind === 'unary'
   return method.methodKind === 'unary' || method.methodKind === 'server_streaming'
 }
 
 /** Call any unary or server-streaming method dynamically from its descriptor. */
 export async function callMethod(o: CallOptions): Promise<CallResult> {
   const { method, registry } = o
-  const transport = makeTransport(o.server, o.protocol, o.registry)
   const input = fromJson(method.input, o.request, { registry })
   const started = performance.now()
   const toOut = (m: Parameters<typeof toJson>[1]) =>
     toJson(method.output, m, { registry, alwaysEmitImplicit: true })
 
   try {
+    if (!isBrowserSupported(method, o.server)) {
+      throw new ConnectError(
+        o.server.mode === 'nats'
+          ? `${method.methodKind} methods are not supported over NATS (request/reply is unary)`
+          : `${method.methodKind} methods are not supported by browsers (fetch has no request streaming)`,
+      )
+    }
+    const transport = makeTransport(o.server, o.protocol, o.registry)
     if (method.methodKind === 'unary') {
       const res = await transport.unary(method as DescMethodUnary, o.signal, o.timeoutMs, o.headers, input)
       o.onMessage(toOut(res.message))
@@ -102,9 +121,7 @@ export async function callMethod(o: CallOptions): Promise<CallResult> {
         trailer: entries(res.trailer),
       }
     }
-    throw new ConnectError(
-      `${method.methodKind} methods are not supported by browsers (fetch has no request streaming)`,
-    )
+    throw new ConnectError(`unsupported method kind ${method.methodKind}`)
   } catch (e) {
     const err = ConnectError.from(e)
     return {

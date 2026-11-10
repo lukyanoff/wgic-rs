@@ -3,6 +3,7 @@ import type { DescMethod, JsonValue } from '@bufbuild/protobuf'
 import './App.css'
 import { callMethod, isBrowserSupported, type CallResult, type Protocol } from './call'
 import { loadSchema, methodComment, methodPath, type Schema } from './schema'
+import { discover, type MicroInfo } from './nats'
 import { loadServers, resetServers, saveServers, type ServerEntry } from './servers'
 import { messageTemplate } from './template'
 
@@ -66,6 +67,8 @@ export default function App() {
   const [result, setResult] = useState<CallResult>()
   const [inputError, setInputError] = useState<string>()
   const [history, setHistory] = useState<HistoryEntry[]>(readHistory)
+  const [discovery, setDiscovery] = useState<{ url: string; infos?: MicroInfo[]; error?: string }>()
+  const [discovering, setDiscovering] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -148,6 +151,19 @@ export default function App() {
     }
   }
 
+  async function runDiscover() {
+    if (!server) return
+    const url = server.url
+    setDiscovering(true)
+    try {
+      setDiscovery({ url, infos: await discover(url) })
+    } catch (e) {
+      setDiscovery({ url, error: `Discovery failed: ${String(e)}` })
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
   function restore(h: HistoryEntry) {
     const idx = servers.findIndex((s) => s.url === h.server.url && s.mode === h.server.mode)
     if (idx >= 0) setServerIdx(idx)
@@ -201,7 +217,7 @@ export default function App() {
                   />
                   <input
                     value={s.url}
-                    placeholder="http://host:port"
+                    placeholder={s.mode === 'nats' ? 'ws://host:port' : 'http://host:port'}
                     onChange={(e) =>
                       updateServers(servers.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
                     }
@@ -218,6 +234,7 @@ export default function App() {
                   >
                     <option value="proxy">proxy</option>
                     <option value="direct">direct</option>
+                    <option value="nats">nats</option>
                   </select>
                   <button
                     className="icon"
@@ -229,6 +246,20 @@ export default function App() {
                   >
                     ×
                   </button>
+                  {s.mode === 'nats' && (
+                    <label className="prefix">
+                      subject prefix
+                      <input
+                        value={s.prefix ?? ''}
+                        placeholder="rpc"
+                        onChange={(e) =>
+                          updateServers(
+                            servers.map((x, j) => (j === i ? { ...x, prefix: e.target.value || undefined } : x)),
+                          )
+                        }
+                      />
+                    </label>
+                  )}
                 </div>
               ))}
               <div className="row">
@@ -259,6 +290,52 @@ export default function App() {
           )}
         </section>
 
+        {server?.mode === 'nats' && !editingServers && (
+          <section className="panel">
+            <div className="panel-title">
+              <span>NATS micro services</span>
+              <button className="link" onClick={runDiscover} disabled={discovering}>
+                {discovering ? 'Discovering…' : 'Discover'}
+              </button>
+            </div>
+            {discovery?.url === server.url && discovery.error && (
+              <div className="error">{discovery.error}</div>
+            )}
+            {discovery?.url === server.url && discovery.infos && (
+              <div className="instances">
+                {discovery.infos.length === 0 && <div className="dim small">No micro services running.</div>}
+                {discovery.infos.map((info) => (
+                  <div key={info.id} className="instance">
+                    <div className="instance-title">
+                      <span className="mono">{info.name}</span>
+                      <span className="dim small">v{info.version}</span>
+                      <span className="dim small mono right" title={info.id}>
+                        {info.id.slice(0, 8)}
+                      </span>
+                    </div>
+                    {info.endpoints.map((ep) => {
+                      const rpc = ep.metadata?.rpc?.replace(/^\//, '')
+                      const known = rpc && methods.has(rpc)
+                      return (
+                        <button
+                          key={ep.name}
+                          className="endpoint"
+                          disabled={!known}
+                          title={known ? ep.subject : `${ep.subject} (not in the loaded schema)`}
+                          onClick={() => rpc && setMethodKey(rpc)}
+                        >
+                          <span className="mono">{ep.name}</span>
+                          <span className="dim small mono">{ep.subject}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="panel grow">
           <div className="panel-title">
             <span>Methods</span>
@@ -288,7 +365,7 @@ export default function App() {
                     >
                       <span>{m.name}</span>
                       {m.methodKind !== 'unary' && (
-                        <span className={`badge ${isBrowserSupported(m) ? '' : 'muted'}`}>
+                        <span className={`badge ${isBrowserSupported(m, server) ? '' : 'muted'}`}>
                           {m.methodKind.replace('_', ' ')}
                         </span>
                       )}
@@ -322,7 +399,9 @@ export default function App() {
                 <select value={protocol} onChange={(e) => setProtocol(e.target.value as Protocol)}>
                   <option value="connect-json">Connect (JSON)</option>
                   <option value="connect-binary">Connect (binary)</option>
-                  <option value="grpc-web">gRPC-web</option>
+                  <option value="grpc-web" disabled={server?.mode === 'nats'}>
+                    gRPC-web
+                  </option>
                 </select>
               </label>
               <label>
@@ -341,18 +420,22 @@ export default function App() {
                 <button
                   className="primary"
                   onClick={send}
-                  disabled={!server || !isBrowserSupported(method)}
+                  disabled={!server || !isBrowserSupported(method, server)}
                   title="Ctrl+Enter"
                 >
                   Send
                 </button>
               )}
             </div>
-            {!isBrowserSupported(method) && (
+            {!isBrowserSupported(method, server) && (
               <div className="error">
-                {method.methodKind.replace('_', ' ')} methods can't be called from a browser. Use{' '}
-                <code>buf curl</code> instead.
+                {method.methodKind.replace('_', ' ')} methods can't be called{' '}
+                {server?.mode === 'nats' ? 'over NATS (request/reply is unary)' : 'from a browser'}. Use{' '}
+                <code>buf curl</code> over HTTP instead.
               </div>
+            )}
+            {server?.mode === 'nats' && protocol === 'grpc-web' && (
+              <div className="error">gRPC-web is not available over NATS; pick a Connect protocol.</div>
             )}
 
             <div className="panes">

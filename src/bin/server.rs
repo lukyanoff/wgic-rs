@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use connect_rust_example::proto::greet::v1::{GreetRequest, GreetResponse, GreetService};
-use connect_rust_example::{addr_from_env, serve};
+use connect_rust_example::run;
 use connectrpc::{RequestContext, Response, Router, ServiceRequest, ServiceResult};
 
 struct GreetServer;
@@ -23,5 +23,5 @@ impl GreetService for GreetServer {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let router = Router::new().add_service(Arc::new(GreetServer));
-    serve(router, addr_from_env().parse()?).await
+    run(router).await
 }

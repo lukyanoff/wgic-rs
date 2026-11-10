@@ -62,14 +62,76 @@ cd web && npm run dev        # http://localhost:5173
   fields. Press Ctrl+Enter to send. Headers go one per line as `key: value`.
 - **History:** the last 20 calls. Click one to restore it.
 
+## NATS micro
+
+Every service can also be hosted as a NATS micro service and called over NATS. No
+per-service code is needed: `src/nats.rs` bridges NATS request/reply to the
+same connect router.
+
+```sh
+podman compose up -d   # or docker compose; starts NATS from nats/nats.conf
+                       # 4222 clients, 9222 WebSocket, 8222 monitoring
+
+# server: HTTP on ADDR + NATS micro
+NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run --bin server
+# NATS only (e.g. extra instances; they load-balance automatically)
+HTTP_DISABLED=1 NATS_URL=nats://127.0.0.1:4222 cargo run --bin server
+
+# client: the generated GreetServiceClient over NATS instead of HTTP
+NATS_URL=nats://127.0.0.1:4222 cargo run --bin client
+```
+
+Server environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NATS_URL` | (unset, so NATS is off) | NATS server URL |
+| `NATS_PREFIX` | `rpc` | Subject prefix |
+| `NATS_SERVICE_NAME` | `greet` | Micro service name. All instances share it. |
+| `NATS_SERVICE_VERSION` | crate version | Micro service version |
+| `HTTP_DISABLED` | (unset) | `1` turns the HTTP listener off |
+
+**Wire format.** NATS carries Connect unary messages:
+
+- **Subject:** `rpc.<package.Service>.<Method>`, e.g. `rpc.greet.v1.GreetService.Greet`
+- **Endpoint name:** `GreetService-Greet`. Endpoint metadata `rpc` holds the RPC
+  path.
+- **Request:** the message in the payload. The `Content-Type` header is
+  `application/json` (the default) or `application/proto`. Other headers are
+  passed through as RPC metadata.
+- **Error:** headers `Nats-Service-Error`, `Nats-Service-Error-Code` (HTTP
+  status) and `Connect-Code`.
+- **Limits:** unary only, because request/reply is unary.
+
+**Playground.** Pick the `nats ws` server (`ws://localhost:9222`, mode `nats`).
+It calls through NATS WebSocket with Connect JSON or binary. "Discover" lists
+the running micro instances and their endpoints. Click an endpoint to open
+it. If you used the playground before, click "Reset to servers.json" to get
+the new entry.
+
+**NATS CLI.** The CLI isn't installed on the host, so run it with
+`podman compose run --rm --no-deps nats-box <command>`. `micro` is an alias of
+`service`.
+
+```sh
+nats micro ls                      # services and instance ids
+nats micro ls greet                # instances of one service
+nats micro info greet              # endpoints, subjects, metadata, stats (-j for JSON)
+nats micro ping greet              # every instance answers with its RTT
+nats micro stats greet             # requests/errors/processing time per instance
+nats micro req greet GreetService-Greet '{"name":"Jane"}'          # call by endpoint name
+nats micro req greet GreetService-Greet '{"name":"x"}' --count 10  # load-balancing check
+nats req rpc.greet.v1.GreetService.Greet '{"name":"Jane"}'         # raw subject
+```
+
 ## Add a new service
 
 1. Add `foo/v1/foo.proto`, then run `npm run gen`.
 2. Include the generated files in `src/lib.rs`, next to `greet::v1`.
 3. Implement the generated `FooService` trait.
-4. In a server binary:
-   `serve(Router::new().add_service(Arc::new(MyFoo)), addr_from_env().parse()?).await`.
-   To run more instances, start more processes with different `ADDR` values.
+4. In a server binary: `run(Router::new().add_service(Arc::new(MyFoo))).await`.
+   That serves it over HTTP (`ADDR`) and NATS (`NATS_URL`). To run more
+   instances, start more processes.
 5. The playground lists it after a page reload.
 
 ## Call it from the command line
@@ -100,11 +162,14 @@ Buf Studio is a hosted playground from Buf: https://buf.build/studio
 - `greet/v1/greet.proto`: the service definition
 - `buf.yaml`: Buf module and lint settings
 - `buf.gen.yaml`: Rust code generation plugins
-- `src/lib.rs`: generated code (`proto::...`), plus `serve()` with CORS and `addr_from_env()`
+- `src/lib.rs`: generated code (`proto::...`), plus `run()` (HTTP + NATS), `serve()` (HTTP with CORS) and `addr_from_env()`
+- `src/nats.rs`: the NATS micro adapter (`serve_nats`) and the client transport (`NatsTransport`)
+- `compose.yaml`, `nats/nats.conf`: NATS with WebSocket and monitoring, plus nats-box (profile `tools`)
 - `src/bin/server.rs`, `src/bin/client.rs`: the example server and client
 - `web/`: the React playground
   - `src/schema.ts`: loads the descriptors
   - `src/call.ts`: dynamic calls
+  - `src/nats.ts`: calls over NATS WebSocket, and discovery
   - `src/template.ts`: request templates
   - `vite.config.ts`: the dev proxy
 
