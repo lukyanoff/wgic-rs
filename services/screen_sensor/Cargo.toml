@@ -1,0 +1,23 @@
+[package]
+name = "screen_sensor"
+description = "Box 3: takes a picture of a screen (cross-platform, pluggable capture drivers)."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Services depend ONLY on contracts + kernel (+ plain libraries). Never on platform,
+# another service, tracing/opentelemetry (use the injected Logger/Metrics) or anyhow.
+[dependencies]
+contracts.workspace = true
+kernel.workspace = true
+connectrpc.workspace = true
+image.workspace = true
+tokio.workspace = true # only for spawn_blocking: screen capture is blocking OS IO
+xcap.workspace = true  # cross-platform driver "xcap" (Windows, macOS, Linux X11/Wayland)
+
+# Like `#if LINUX` in a .csproj: only compiled into Linux builds.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb.workspace = true # native sub-driver "linux-x11" (pure Rust, no C libraries)
+
+[lints]
+workspace = true

@@ -9,4 +9,10 @@ pub mod proto {
             include!("gen/connect/greet.v1.rs");
         }
     }
+    pub mod screen_sensor {
+        pub mod v1 {
+            include!("gen/buffa/screen_sensor.v1.rs");
+            include!("gen/connect/screen_sensor.v1.rs");
+        }
+    }
 }

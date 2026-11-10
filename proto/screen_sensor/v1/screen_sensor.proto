@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package screen_sensor.v1;
+
+// Everything about *what* to capture (screen, format, driver) comes from the
+// service configuration, so the request is empty.
+message CaptureRequest {}
+
+message CaptureResponse {
+  // Encoded image bytes (PNG or JPEG, see metadata.format).
+  bytes image = 1;
+  ImageMetadata metadata = 2;
+}
+
+message ImageMetadata {
+  uint32 width = 1;
+  uint32 height = 2;
+  // "png" or "jpeg".
+  string format = 3;
+  // "image/png" or "image/jpeg".
+  string mime_type = 4;
+  string screen_name = 5;
+  uint32 screen_index = 6;
+  float scale_factor = 7;
+  // Sub-driver that took the picture, e.g. "xcap" or "linux-x11".
+  string driver = 8;
+  int64 captured_at_unix_ms = 9;
+  uint32 capture_duration_ms = 10;
+  // Size of `image` in bytes (the encoded PNG/JPEG file).
+  uint64 file_size_bytes = 11;
+  // Size of `image` once base64-encoded, as it travels in Connect JSON and NATS JSON
+  // replies (4 * ceil(file_size_bytes / 3)). Compare with the NATS max_payload.
+  uint64 base64_size_bytes = 12;
+}
+
+service ScreenSensorService {
+  rpc Capture(CaptureRequest) returns (CaptureResponse) {}
+}
