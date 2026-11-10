@@ -1,0 +1,44 @@
+# OpenTelemetry Collector for local development.
+# Mounted by compose.yaml at /etc/otelcol-contrib/config.yaml.
+#
+#   Rust servers/clients ─┐
+#   browser playground ───┼─ OTLP (4317 gRPC, 4318 HTTP) ─▶ traces ─▶ Jaeger
+#                         │                                 logs   ─▶ debug (collector stdout)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        # The playground exports straight from the browser.
+        cors:
+          allowed_origins: ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"]
+          allowed_headers: ["*"]
+          max_age: 7200
+
+processors:
+  batch:
+    timeout: 500ms
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Log records (with trace_id/span_id) are printed here:
+  #   podman compose logs -f otel-collector
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

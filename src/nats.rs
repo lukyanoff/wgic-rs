@@ -26,6 +26,14 @@ use futures::future::BoxFuture;
 use http::{HeaderName, HeaderValue, Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use tower::ServiceExt as _;
+use tracing::field::Empty;
+use tracing::{Instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use crate::telemetry::{
+    Transport, continue_trace, extract_http, extract_nats, inject_http, inject_nats,
+    is_propagation_header,
+};
 
 pub const CONNECT_CODE: &str = "Connect-Code";
 const NATS_SERVICE_ERROR: &str = "Nats-Service-Error";
@@ -130,25 +138,37 @@ pub async fn serve_nats(
             .metadata(HashMap::from([("rpc".to_string(), rpc_path.clone())]))
             .add(&subject)
             .await?;
-        println!("nats: {name} on {subject}");
+        tracing::info!(endpoint = %name, %subject, "nats: endpoint added");
 
         let service = service.clone();
         tasks.push(tokio::spawn(async move {
             while let Some(req) = endpoint.next().await {
                 let service = service.clone();
                 let rpc_path = rpc_path.clone();
-                tokio::spawn(async move {
-                    let (result, headers) = handle(service, &rpc_path, &req.message).await;
-                    if let Err(e) = req.respond_with_headers(result, headers).await {
-                        eprintln!("nats: failed to reply on {rpc_path}: {e}");
+                let span = receive_span(&req.message);
+                tokio::spawn(
+                    async move {
+                        let (result, headers) = handle(service, &rpc_path, &req.message).await;
+                        if let Err(e) = &result {
+                            let span = Span::current();
+                            span.record("otel.status_code", "ERROR");
+                            span.record("otel.status_message", e.status.as_str());
+                            span.record("messaging.nats.service_error_code", e.code as u64);
+                        }
+                        if let Err(e) = req.respond_with_headers(result, headers).await {
+                            tracing::error!(rpc = %rpc_path, error = %e, "nats: failed to reply");
+                        }
                     }
-                });
+                    .instrument(span),
+                );
             }
         }));
     }
-    println!(
-        "nats micro service {} {} started ({})",
-        cfg.name, cfg.version, cfg.url
+    tracing::info!(
+        service = %cfg.name,
+        version = %cfg.version,
+        url = %cfg.url,
+        "nats micro service started"
     );
     for t in tasks {
         t.await?;
@@ -156,7 +176,28 @@ pub async fn serve_nats(
     Ok(())
 }
 
-/// Bridge one NATS request into the connect router and back.
+/// Consumer span for one incoming request, continuing the caller's trace from the
+/// NATS headers. The connect interceptor's `rpc.server` span becomes its child.
+fn receive_span(msg: &async_nats::Message) -> Span {
+    let subject = msg.subject.as_str();
+    let span = tracing::info_span!(
+        "nats.receive",
+        otel.name = format!("process {subject}").as_str(),
+        otel.kind = "consumer",
+        otel.status_code = Empty,
+        otel.status_message = Empty,
+        messaging.system = "nats",
+        messaging.operation.type = "process",
+        messaging.destination.name = subject,
+        messaging.message.body.size = msg.payload.len() as u64,
+        messaging.nats.service_error_code = Empty,
+    );
+    continue_trace(&span, extract_nats(msg.headers.as_ref()));
+    span
+}
+
+/// Bridge one NATS request into the connect router and back. Runs inside the
+/// `nats.receive` span.
 async fn handle(
     service: ConnectRpcService,
     rpc_path: &str,
@@ -181,6 +222,9 @@ async fn handle(
             let Ok(name) = HeaderName::from_bytes(AsRef::<str>::as_ref(name).as_bytes()) else {
                 continue;
             };
+            if is_propagation_header(name.as_str()) {
+                continue; // replaced by the nats.receive span's context below
+            }
             has_content_type |= name == http::header::CONTENT_TYPE;
             for v in values {
                 if let Ok(v) = HeaderValue::from_str(v.as_str()) {
@@ -192,6 +236,12 @@ async fn handle(
     if !has_content_type {
         builder = builder.header(http::header::CONTENT_TYPE, "application/json");
     }
+    if let Some(h) = builder.headers_mut() {
+        inject_http(&Span::current().context(), h);
+    }
+    builder = builder.extension(Transport::Nats {
+        subject: msg.subject.to_string(),
+    });
     let request = match builder.body(Full::new(msg.payload.clone())) {
         Ok(r) => r,
         Err(e) => {
@@ -271,17 +321,35 @@ impl ClientTransport for NatsTransport {
     ) -> BoxFuture<'static, Result<Response<Self::ResponseBody>, Self::Error>> {
         let nc = self.nc.clone();
         let prefix = self.prefix.clone();
-        Box::pin(async move {
-            let (parts, body) = request.into_parts();
-            let subject = subject_for(&prefix, parts.uri.path());
+        let (parts, body) = request.into_parts();
+        let subject = subject_for(&prefix, parts.uri.path());
+        let span = tracing::info_span!(
+            "nats.request",
+            otel.name = format!("send {subject}").as_str(),
+            otel.kind = "producer",
+            otel.status_code = Empty,
+            otel.status_message = Empty,
+            messaging.system = "nats",
+            messaging.operation.type = "send",
+            messaging.destination.name = subject.as_str(),
+            messaging.nats.service_error_code = Empty,
+        );
+        // Parent: the caller's context from the request headers (e.g. TracingTransport),
+        // otherwise the current span.
+        continue_trace(&span, extract_http(&parts.headers));
+        let fut = async move {
             let payload = body.collect().await?.to_bytes();
 
             let mut headers = HeaderMap::new();
             for (name, value) in parts.headers.iter() {
+                if is_propagation_header(name.as_str()) {
+                    continue;
+                }
                 if let Ok(v) = value.to_str() {
                     headers.append(name.as_str(), v);
                 }
             }
+            inject_nats(&Span::current().context(), &mut headers);
             let timeout = parts
                 .headers
                 .get("connect-timeout-ms")
@@ -292,12 +360,29 @@ impl ClientTransport for NatsTransport {
                 .payload(payload)
                 .headers(headers)
                 .timeout(timeout);
-            let reply = nc
-                .send_request(subject.clone(), req)
-                .await
-                .map_err(|e| request_error(&subject, e))?;
+            let reply = nc.send_request(subject.clone(), req).await.map_err(|e| {
+                let err = request_error(&subject, e);
+                let span = Span::current();
+                span.record("otel.status_code", "ERROR");
+                span.record("otel.status_message", err.message.as_deref().unwrap_or(""));
+                tracing::warn!(%subject, code = err.code.as_str(), "nats request failed");
+                err
+            })?;
+            if let Some(code) = reply
+                .headers
+                .as_ref()
+                .and_then(|h| h.get(NATS_SERVICE_ERROR_CODE))
+            {
+                let span = Span::current();
+                span.record("otel.status_code", "ERROR");
+                span.record(
+                    "messaging.nats.service_error_code",
+                    code.as_str().parse::<u64>().unwrap_or(0),
+                );
+            }
             Ok(reply_to_response(reply))
-        })
+        };
+        Box::pin(fut.instrument(span))
     }
 }
 

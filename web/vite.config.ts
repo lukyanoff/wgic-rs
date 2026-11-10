@@ -70,8 +70,29 @@ function connectProxy(): Plugin {
   }
 }
 
+// Jaeger query API for the Trace panel: /__jaeger/api/traces/<id> → $JAEGER_URL/api/traces/<id>.
+const JAEGER_URL = process.env.JAEGER_URL ?? 'http://localhost:16686'
+// Browser span export: /__otlp/spans → $OTEL_COLLECTOR_URL/v1/traces. Same-origin, so no
+// CORS, it works when the playground is opened from another host, and ad/privacy blockers
+// that drop requests to */v1/traces don't see that path.
+const OTEL_COLLECTOR_URL = process.env.OTEL_COLLECTOR_URL ?? 'http://localhost:4318'
+
 export default defineConfig({
   plugins: [react(), connectProxy()],
+  server: {
+    proxy: {
+      '/__jaeger': {
+        target: JAEGER_URL,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/__jaeger/, ''),
+      },
+      '/__otlp/spans': {
+        target: OTEL_COLLECTOR_URL,
+        changeOrigin: true,
+        rewrite: () => '/v1/traces',
+      },
+    },
+  },
   // nats-core makes the bundle ~520 kB; fine for a dev tool.
   build: { chunkSizeWarningLimit: 800 },
 })

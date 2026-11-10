@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { DescMethod, JsonValue } from '@bufbuild/protobuf'
 import './App.css'
 import { callMethod, isBrowserSupported, type CallResult, type Protocol } from './call'
 import { loadSchema, methodComment, methodPath, type Schema } from './schema'
 import { NatsConsole } from './NatsConsole'
+import {
+  configureTelemetry,
+  DEFAULT_SETTINGS,
+  getExportStatus,
+  jaegerTraceUrl,
+  loadSettings,
+  saveSettings,
+  subscribeExportStatus,
+  type TelemetrySettings,
+} from './otel'
+import { TracePanel } from './TracePanel'
 import { loadServers, resetServers, saveServers, type ServerEntry } from './servers'
 import { messageTemplate } from './template'
 
@@ -16,6 +27,7 @@ interface HistoryEntry {
   headers: string
   ok: boolean
   status: string
+  traceId?: string
 }
 
 const HISTORY_KEY = 'playground.history'
@@ -68,7 +80,17 @@ export default function App() {
   const [inputError, setInputError] = useState<string>()
   const [history, setHistory] = useState<HistoryEntry[]>(readHistory)
   const [mainTab, setMainTab] = useState<'rpc' | 'nats'>('rpc')
+  const [traceId, setTraceId] = useState<string>()
+  const [telemetry, setTelemetry] = useState<TelemetrySettings>(loadSettings)
+  const [editingTelemetry, setEditingTelemetry] = useState(false)
+  const exportStatus = useSyncExternalStore(subscribeExportStatus, getExportStatus)
   const abortRef = useRef<AbortController | null>(null)
+
+  // (Re)configure the browser tracer whenever the telemetry settings change.
+  useEffect(() => {
+    configureTelemetry(telemetry)
+    saveSettings(telemetry)
+  }, [telemetry])
 
   useEffect(() => {
     loadSchema()
@@ -110,6 +132,7 @@ export default function App() {
     setInputError(undefined)
     setMessages([])
     setResult(undefined)
+    setTraceId(undefined)
     setRunning(true)
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -126,6 +149,7 @@ export default function App() {
         onMessage: (m) => setMessages((prev) => [...prev, m]),
       })
       setResult(res)
+      setTraceId(res.traceId)
       const entry: HistoryEntry = {
         at: Date.now(),
         server,
@@ -135,6 +159,7 @@ export default function App() {
         headers,
         ok: res.ok,
         status: res.error?.code ?? 'ok',
+        traceId: res.traceId,
       }
       setHistory((h) => {
         const next = [entry, ...h].slice(0, HISTORY_MAX)
@@ -161,6 +186,9 @@ export default function App() {
     setProtocol(h.protocol)
     setHeaders(h.headers)
     setRequests((r) => ({ ...r, [h.methodKey]: h.request }))
+    setTraceId(h.traceId)
+    setResult(undefined)
+    setMessages([])
   }
 
   const q = filter.trim().toLowerCase()
@@ -273,6 +301,61 @@ export default function App() {
                   Reset to servers.json
                 </button>
               </div>
+            </div>
+          )}
+        </section>
+
+        <section className="panel telemetry">
+          <div className="panel-title">
+            <span>Telemetry</span>
+            <button className="link" onClick={() => setEditingTelemetry((v) => !v)}>
+              {editingTelemetry ? 'Done' : 'Edit'}
+            </button>
+          </div>
+          <div className="small">
+            OTEL export{' '}
+            <span className={`export-state ${exportStatus.state}`}>
+              {exportStatus.state === 'off'
+                ? 'off'
+                : exportStatus.state === 'idle'
+                  ? 'ready'
+                  : exportStatus.state === 'ok'
+                    ? 'ok'
+                    : 'failing'}
+            </span>
+            {' · '}
+            <a href={telemetry.jaegerUrl} target="_blank" rel="noreferrer">
+              Jaeger ↗
+            </a>
+          </div>
+          {exportStatus.state === 'error' && <div className="error small">{exportStatus.error}</div>}
+          {editingTelemetry && (
+            <div className="server-editor">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={telemetry.exportEnabled}
+                  onChange={(e) => setTelemetry({ ...telemetry, exportEnabled: e.target.checked })}
+                />{' '}
+                export browser spans (traces always start here)
+              </label>
+              <label>
+                OTLP/HTTP traces endpoint (/__otlp/spans = dev proxy)
+                <input
+                  value={telemetry.collectorUrl}
+                  onChange={(e) => setTelemetry({ ...telemetry, collectorUrl: e.target.value })}
+                />
+              </label>
+              <label>
+                Jaeger UI
+                <input
+                  value={telemetry.jaegerUrl}
+                  onChange={(e) => setTelemetry({ ...telemetry, jaegerUrl: e.target.value })}
+                />
+              </label>
+              <button className="link" onClick={() => setTelemetry(DEFAULT_SETTINGS)}>
+                Reset
+              </button>
             </div>
           )}
         </section>
@@ -484,6 +567,8 @@ export default function App() {
               </section>
             </div>
 
+            {traceId && <TracePanel key={traceId} traceId={traceId} />}
+
             {history.length > 0 && (
               <section className="history">
                 <div className="pane-title">
@@ -509,6 +594,17 @@ export default function App() {
                         <span className="dim">{h.status}</span>
                         <span className="dim right">{new Date(h.at).toLocaleTimeString()}</span>
                       </button>
+                      {h.traceId && (
+                        <a
+                          className="trace-link mono"
+                          href={jaegerTraceUrl(h.traceId)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open trace in Jaeger"
+                        >
+                          {h.traceId.slice(0, 8)}…
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>

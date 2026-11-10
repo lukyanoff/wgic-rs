@@ -5,8 +5,10 @@ import {
   TimeoutError,
   wsconnect,
   type Msg,
+  type MsgHdrs,
   type NatsConnection,
 } from '@nats-io/nats-core'
+import { endSpan, extractContext, isPropagationHeader, SpanKind, startSpan, traceHeaders } from './otel'
 
 // Calls Connect unary RPCs over NATS (WebSocket), using the same wire format as
 // the Rust adapter in src/nats.rs:
@@ -57,7 +59,8 @@ const CODE_FOR_STATUS: Record<number, string> = {
 function errorResponse(status: number, code: string, message: string): Response {
   return new Response(JSON.stringify({ code, message }), {
     status,
-    headers: { 'content-type': 'application/json' },
+    // x-nats-error is local only (never sent); it labels the producer span.
+    headers: { 'content-type': 'application/json', 'x-nats-error': code },
   })
 }
 
@@ -78,43 +81,83 @@ function replyToResponse(msg: Msg): Response {
 /**
  * A `fetch` that sends Connect unary requests over NATS request/reply, for
  * `createConnectTransport({ fetch })`. Only the URL path is used.
+ *
+ * Each request gets a PRODUCER span `send <subject>` under the RPC span (whose context
+ * arrives in the request headers); the producer span's context goes out in the NATS headers.
  */
 export function natsFetch(url: string, prefix: string): typeof fetch {
   return async (input, init) => {
     const req = new Request(input, init)
     const subject = subjectFor(prefix, new URL(req.url).pathname)
     const body = new Uint8Array(await req.arrayBuffer())
-    const hdrs = natsHeaders()
-    req.headers.forEach((v, k) => hdrs.append(k, v))
     const timeout = Number(req.headers.get('connect-timeout-ms')) || DEFAULT_TIMEOUT_MS
 
-    let nc: NatsConnection
-    try {
-      nc = await getConnection(url)
-    } catch (e) {
-      return errorResponse(503, 'unavailable', `cannot connect to NATS at ${url}: ${String(e)}`)
-    }
-
-    const signal = init?.signal ?? undefined
-    if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-    const aborted = new Promise<never>((_, reject) =>
-      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
-        once: true,
-      }),
+    const { span, ctx } = startSpan(
+      `send ${subject}`,
+      SpanKind.PRODUCER,
+      {
+        'messaging.system': 'nats',
+        'messaging.operation.type': 'send',
+        'messaging.destination.name': subject,
+        'messaging.message.body.size': body.length,
+        'server.address': url,
+      },
+      extractContext(req.headers.entries()),
     )
+    const hdrs = natsHeaders()
+    req.headers.forEach((v, k) => {
+      if (!isPropagationHeader(k)) hdrs.append(k, v)
+    })
+    for (const [k, v] of Object.entries(traceHeaders(ctx))) hdrs.set(k, v)
+
+    let failure: string | undefined
     try {
-      const msg = await Promise.race([nc.request(subject, body, { timeout, headers: hdrs }), aborted])
-      return replyToResponse(msg)
+      const res = await natsRequestResponse(url, subject, body, hdrs, timeout, init?.signal ?? undefined)
+      if (res.status !== 200) failure = `${res.status} ${res.headers.get('x-nats-error') ?? ''}`.trim()
+      span.setAttribute('messaging.nats.reply_status', res.status)
+      return res
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') throw e
-      const cause = e instanceof RequestError ? e.cause : e
-      if (cause instanceof NoRespondersError || (e instanceof RequestError && e.isNoResponders())) {
-        return errorResponse(503, 'unavailable', `no NATS responders for ${subject}`)
-      }
-      if (cause instanceof TimeoutError || e instanceof TimeoutError) {
-        return errorResponse(504, 'deadline_exceeded', `NATS request to ${subject} timed out`)
-      }
-      return errorResponse(503, 'unavailable', `NATS ${subject}: ${String(e)}`)
+      failure = String(e)
+      throw e
+    } finally {
+      endSpan(span, failure)
     }
+  }
+}
+
+async function natsRequestResponse(
+  url: string,
+  subject: string,
+  body: Uint8Array,
+  hdrs: MsgHdrs,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  let nc: NatsConnection
+  try {
+    nc = await getConnection(url)
+  } catch (e) {
+    return errorResponse(503, 'unavailable', `cannot connect to NATS at ${url}: ${String(e)}`)
+  }
+
+  if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+  const aborted = new Promise<never>((_, reject) =>
+    signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
+      once: true,
+    }),
+  )
+  try {
+    const msg = await Promise.race([nc.request(subject, body, { timeout, headers: hdrs }), aborted])
+    return replyToResponse(msg)
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    const cause = e instanceof RequestError ? e.cause : e
+    if (cause instanceof NoRespondersError || (e instanceof RequestError && e.isNoResponders())) {
+      return errorResponse(503, 'unavailable', `no NATS responders for ${subject}`)
+    }
+    if (cause instanceof TimeoutError || e instanceof TimeoutError) {
+      return errorResponse(504, 'deadline_exceeded', `NATS request to ${subject} timed out`)
+    }
+    return errorResponse(503, 'unavailable', `NATS ${subject}: ${String(e)}`)
   }
 }

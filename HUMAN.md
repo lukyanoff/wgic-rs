@@ -141,6 +141,86 @@ nats micro req greet GreetService-Greet '{"name":"x"}' --count 10  # load-balanc
 nats req rpc.greet.v1.GreetService.Greet '{"name":"Jane"}'         # raw subject
 ```
 
+## Observability (OpenTelemetry)
+
+Every request and reply is traced on every protocol: Connect JSON and binary,
+gRPC and gRPC-web over HTTP, and Connect over NATS. Every log line is JSON
+with the `trace_id` and `span_id` of the active span. The playground starts
+each trace in the browser and shows the whole thing.
+
+```sh
+podman compose up -d   # NATS + otel-collector (4317 gRPC, 4318 HTTP) + Jaeger (http://localhost:16686)
+
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_BSP_SCHEDULE_DELAY=200 \
+  NATS_URL=nats://127.0.0.1:4222 ADDR=127.0.0.1:8081 cargo run --bin server
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 ADDR=127.0.0.1:8081 cargo run --bin client
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (unset, so no export) | OTLP/HTTP collector. When it is unset, spans still get IDs, so logs stay correlated. |
+| `OTEL_SERVICE_NAME` | `greet-server` / `greet-client` | `service.name` |
+| `OTEL_BSP_SCHEDULE_DELAY` | `5000` | Batch export delay in ms. Use a low value so the playground sees server spans quickly. |
+| `RUST_LOG` | `info` | Log filter, e.g. `info,connect_rust_example=debug` |
+
+**Logs.** One JSON object per line on stdout. Each log is also an OTLP log
+record (the collector prints them: `podman compose logs -f otel-collector`)
+and an event on its span (Jaeger shows these as span logs):
+
+```json
+{"timestamp":"…","level":"INFO","target":"server","message":"greeting","name":"Jane","transport":"nats","span":"rpc.server","trace_id":"4491f568…","span_id":"d914f9f3…"}
+```
+
+**Spans.** W3C `traceparent`, `tracestate` and `baggage` are carried in HTTP
+headers and in NATS message headers. Each hop rewrites them with its own span.
+
+```
+HTTP:  client span (playground / TracingTransport) → rpc.server
+NATS:  client span → send <subject> (producer) → process <subject> (consumer) → rpc.server
+```
+
+`rpc.server` records `rpc.system`, `rpc.service`, `rpc.method`,
+`rpc.wire_protocol` (connect | grpc | grpc_web), `rpc.transport` (http | nats),
+`rpc.content_type` and, on failure, `rpc.connect_rpc.error_code`. It also logs
+`rpc finished` / `rpc failed` with `duration_ms`.
+
+**In code** (`src/telemetry.rs`):
+
+- `init_telemetry("name")` at the top of `main`. Keep the guard: it flushes on drop.
+- Servers get `OtelInterceptor` automatically through `run()` / `serve()`. Handlers run
+  inside the `rpc.server` span, so `tracing::info!(…)` is correlated. The span's OTEL
+  context is part of the request context:
+  `use connect_rust_example::RequestContextOtel;` then `ctx.otel()`, `ctx.trace_id()`
+  and `ctx.transport()`.
+- Clients: wrap any transport in `TracingTransport(…)`, e.g.
+  `TracingTransport(HttpClient::plaintext())` or `TracingTransport(NatsTransport::new(nc, "rpc"))`.
+
+**Playground.**
+
+- Every call (RPC tab, and NATS Request/Raw) starts a trace in the browser
+  (`service.name=connect-playground`) and exports it to the collector.
+- A **Trace** panel appears under the response. It shows browser spans right
+  away, then the whole trace from Jaeger: a span waterfall (click a span for
+  its attributes and logs) and a **Logs** view with every log line from every
+  service, ordered by time.
+- NATS Request with `--count N` puts all N requests under one parent span.
+  Subscribe rows that carry a `traceparent` open their trace.
+- History rows link to the trace in Jaeger.
+- The sidebar **Telemetry** panel shows the export status. You can edit the
+  OTLP endpoint and the Jaeger URL there, or turn browser export off.
+- Type a `traceparent` header to join an existing trace.
+- Both directions go through the Vite dev server, so this needs `npm run dev`:
+  - Browser spans are exported to `/__otlp/spans`, which is forwarded to
+    `$OTEL_COLLECTOR_URL/v1/traces` (default `http://localhost:4318`). Because
+    the export is same-origin, it needs no CORS, it works when the playground
+    is opened from another host, and ad/privacy blockers that drop requests to
+    `*/v1/traces` don't block it.
+  - Jaeger is read through `/__jaeger`, forwarded to `$JAEGER_URL` (default
+    `http://localhost:16686`).
+  - You can also point the Telemetry panel straight at the collector (e.g.
+    `http://localhost:4318/v1/traces`). The collector allows CORS from
+    `http://localhost:5173` (`otel/collector.yaml`).
+
 ## Add a new service
 
 1. Add `foo/v1/foo.proto`, then run `npm run gen`.
@@ -181,7 +261,9 @@ Buf Studio is a hosted playground from Buf: https://buf.build/studio
 - `buf.gen.yaml`: Rust code generation plugins
 - `src/lib.rs`: generated code (`proto::...`), plus `run()` (HTTP + NATS), `serve()` (HTTP with CORS) and `addr_from_env()`
 - `src/nats.rs`: the NATS micro adapter (`serve_nats`) and the client transport (`NatsTransport`)
+- `src/telemetry.rs`: OTEL + JSON logging (`init`), `OtelInterceptor`, `TracingTransport`, `RequestContextOtel`, HTTP/NATS propagation
 - `compose.yaml`, `nats/nats.conf`: NATS with WebSocket and monitoring, plus nats-box (profile `tools`)
+- `otel/collector.yaml`: OTEL Collector (OTLP in, traces to Jaeger, logs to its stdout)
 - `src/bin/server.rs`, `src/bin/client.rs`: the example server and client
 - `web/`: the React playground
   - `src/schema.ts`: loads the descriptors
@@ -189,7 +271,9 @@ Buf Studio is a hosted playground from Buf: https://buf.build/studio
   - `src/nats.ts`: RPC calls over NATS WebSocket
   - `src/natsTools.ts`, `src/NatsConsole.tsx`: the NATS tab (the micro/req/pub/sub equivalents)
   - `src/template.ts`: request templates
-  - `vite.config.ts`: the dev proxy
+  - `src/otel.ts`: the browser tracer, propagation helpers and the in-memory span store
+  - `src/jaeger.ts`, `src/TracePanel.tsx`: read traces back from Jaeger and show them
+  - `vite.config.ts`: the dev proxy, and `/__jaeger` for the Jaeger query API
 
 ## Gotchas
 

@@ -7,7 +7,18 @@ import {
   type MsgHdrs,
   type NatsConnection,
 } from '@nats-io/nats-core'
+import type { Context } from '@opentelemetry/api'
 import { getConnection } from './nats'
+import {
+  endSpan,
+  extractContext,
+  flushSpans,
+  isPropagationHeader,
+  SpanKind,
+  startSpan,
+  traceHeaders,
+  traceIdFromTraceparent,
+} from './otel'
 
 // Browser equivalents of `nats micro ls|info|ping|stats|req` and `nats req|pub|sub`.
 // Discovery uses the micro protocol subjects: $SRV.<PING|INFO|STATS>[.<name>[.<id>]].
@@ -195,6 +206,8 @@ export interface ReqResult {
   error?: string
   /** Set when the reply carries Nats-Service-Error* headers. */
   serviceError?: { code: string; message: string }
+  /** Trace this request belongs to. */
+  traceId: string
 }
 
 function serviceErrorOf(h?: MsgHdrs): ReqResult['serviceError'] {
@@ -202,45 +215,104 @@ function serviceErrorOf(h?: MsgHdrs): ReqResult['serviceError'] {
   return code ? { code, message: h?.get('Nats-Service-Error') ?? '' } : undefined
 }
 
-/** `nats req <subject> <payload> [-H k:v]` */
+/**
+ * Start a PRODUCER span for a raw NATS send and return the headers to send: the user's
+ * headers with the span's `traceparent` (a user-typed `traceparent` becomes the parent).
+ */
+function tracedSend(
+  op: 'request' | 'publish',
+  url: string,
+  subject: string,
+  payload: string,
+  headers: HeaderList,
+  parent?: Context,
+) {
+  const started = startSpan(
+    `${op === 'request' ? 'send' : 'publish'} ${subject}`,
+    SpanKind.PRODUCER,
+    {
+      'messaging.system': 'nats',
+      'messaging.operation.type': op === 'request' ? 'send' : 'publish',
+      'messaging.destination.name': subject,
+      'messaging.message.body.size': new TextEncoder().encode(payload).length,
+      'server.address': url,
+      'playground.tool': `nats ${op === 'request' ? 'req' : 'pub'}`,
+    },
+    parent ?? extractContext(headers),
+  )
+  const out: HeaderList = [
+    ...headers.filter(([k]) => !isPropagationHeader(k)),
+    ...Object.entries(traceHeaders(started.ctx)),
+  ]
+  return { ...started, headers: out }
+}
+
+/** `nats req <subject> <payload> [-H k:v]`. `parent` groups several requests in one trace. */
 export async function natsRequest(
   url: string,
   subject: string,
   payload: string,
   headers: HeaderList,
   timeoutMs: number,
+  parent?: Context,
 ): Promise<ReqResult> {
   const nc = await getConnection(url)
+  const t = tracedSend('request', url, subject, payload, headers, parent)
   const started = performance.now()
+  let r: ReqResult
   try {
     const msg: Msg = await nc.request(subject, payload, {
       timeout: timeoutMs,
-      headers: toNatsHeaders(headers),
+      headers: toNatsHeaders(t.headers),
     })
     const serviceError = serviceErrorOf(msg.headers)
-    return {
+    r = {
       ok: !serviceError,
       rttMs: performance.now() - started,
       headers: headerList(msg.headers),
       data: msg.data,
       serviceError,
+      traceId: t.traceId,
     }
   } catch (e) {
-    return {
+    r = {
       ok: false,
       rttMs: performance.now() - started,
       headers: [],
       data: new Uint8Array(),
       error: describeError(e, subject),
+      traceId: t.traceId,
     }
   }
+  endSpan(
+    t.span,
+    r.error ?? (r.serviceError ? `${r.serviceError.code}: ${r.serviceError.message}` : undefined),
+    { 'messaging.nats.reply_bytes': r.data.length },
+  )
+  if (!parent) void flushSpans()
+  return r
 }
 
-/** `nats pub <subject> <payload> [-H k:v]` */
-export async function natsPublish(url: string, subject: string, payload: string, headers: HeaderList) {
+/** `nats pub <subject> <payload> [-H k:v]`. Returns the trace id. */
+export async function natsPublish(
+  url: string,
+  subject: string,
+  payload: string,
+  headers: HeaderList,
+): Promise<string> {
   const nc = await getConnection(url)
-  nc.publish(subject, payload, { headers: toNatsHeaders(headers) })
-  await nc.flush()
+  const t = tracedSend('publish', url, subject, payload, headers)
+  try {
+    nc.publish(subject, payload, { headers: toNatsHeaders(t.headers) })
+    await nc.flush()
+    endSpan(t.span)
+  } catch (e) {
+    endSpan(t.span, String(e))
+    throw e
+  } finally {
+    void flushSpans()
+  }
+  return t.traceId
 }
 
 export interface TailMsg {
@@ -249,6 +321,8 @@ export interface TailMsg {
   reply?: string
   headers: HeaderList
   data: Uint8Array
+  /** From a `traceparent` header, when the message carries one. */
+  traceId?: string
 }
 
 /** `nats sub <subject>`: returns an unsubscribe function. */
@@ -262,12 +336,14 @@ export async function natsSubscribe(
   const sub = nc.subscribe(subject, {
     callback: (err, m) => {
       if (err) return onError(err)
+      const headers = headerList(m.headers)
       onMsg({
         at: Date.now(),
         subject: m.subject,
         reply: m.reply,
-        headers: headerList(m.headers),
+        headers,
         data: m.data,
+        traceId: traceIdFromTraceparent(headers.find(([k]) => k.toLowerCase() === 'traceparent')?.[1]),
       })
     },
   })

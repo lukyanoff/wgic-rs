@@ -20,3 +20,21 @@ services:
     profiles: ["tools"]
     environment:
       NATS_URL: nats://nats:4222
+
+  # OTLP entry point for every process (Rust + browser): 4317 gRPC, 4318 HTTP.
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  # Trace storage + UI/API: http://localhost:16686 (OTLP from the collector only).
+  jaeger:
+    image: docker.io/jaegertracing/jaeger:2.7.0
+    ports:
+      - "16686:16686"

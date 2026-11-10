@@ -10,6 +10,7 @@ import {
 import { ConnectError, type Interceptor, type Transport } from '@connectrpc/connect'
 import { createConnectTransport, createGrpcWebTransport } from '@connectrpc/connect-web'
 import { natsFetch } from './nats'
+import { endSpan, extractContext, flushSpans, isPropagationHeader, SpanKind, startSpan, traceHeaders } from './otel'
 import { DEFAULT_NATS_PREFIX, type ServerEntry } from './servers'
 
 export type Protocol = 'connect-json' | 'connect-binary' | 'grpc-web'
@@ -33,6 +34,8 @@ export interface CallResult {
   header: [string, string][]
   trailer: [string, string][]
   error?: { code: string; message: string; details: JsonValue[] }
+  /** Trace started by the playground for this call. */
+  traceId: string
 }
 
 function makeTransport(server: ServerEntry, protocol: Protocol, registry: Registry): Transport {
@@ -76,13 +79,66 @@ export function isBrowserSupported(method: DescMethod, server?: ServerEntry): bo
   return method.methodKind === 'unary' || method.methodKind === 'server_streaming'
 }
 
-/** Call any unary or server-streaming method dynamically from its descriptor. */
+/**
+ * Call any unary or server-streaming method dynamically from its descriptor.
+ *
+ * Every call is the root of a new trace (or joins the one in a `traceparent` the user typed):
+ * a CLIENT span `<Service>/<Method>` whose context goes out as W3C trace headers.
+ */
 export async function callMethod(o: CallOptions): Promise<CallResult> {
   const { method, registry } = o
   const input = fromJson(method.input, o.request, { registry })
-  const started = performance.now()
   const toOut = (m: Parameters<typeof toJson>[1]) =>
     toJson(method.output, m, { registry, alwaysEmitImplicit: true })
+
+  const userHeaders = Object.entries(o.headers)
+  const { span, ctx, traceId } = startSpan(
+    `${method.parent.typeName}/${method.name}`,
+    SpanKind.CLIENT,
+    {
+      'rpc.system': o.protocol === 'grpc-web' ? 'grpc' : 'connect_rpc',
+      'rpc.service': method.parent.typeName,
+      'rpc.method': method.name,
+      'rpc.method_kind': method.methodKind,
+      'rpc.wire_protocol': o.protocol,
+      'rpc.transport': o.server.mode === 'nats' ? 'nats' : 'http',
+      'server.address': o.server.url,
+      'playground.server.name': o.server.name,
+      'playground.server.mode': o.server.mode,
+    },
+    extractContext(userHeaders),
+  )
+  span.addEvent('request', { 'message.json': JSON.stringify(o.request) })
+  const headers: Record<string, string> = {
+    ...Object.fromEntries(userHeaders.filter(([k]) => !isPropagationHeader(k))),
+    ...traceHeaders(ctx),
+  }
+  const started = performance.now()
+  let count = 0
+  const onMessage = (m: JsonValue) => {
+    count++
+    span.addEvent('response message', { 'message.index': count, 'message.json': JSON.stringify(m) })
+    o.onMessage(m)
+  }
+  const result = await doCall({ ...o, headers }, input, toOut, onMessage, started, traceId)
+  endSpan(span, result.error ? `${result.error.code}: ${result.error.message}` : undefined, {
+    'rpc.connect_rpc.error_code': result.error?.code ?? 'ok',
+    'rpc.response.messages': count,
+  })
+  void flushSpans()
+  return result
+}
+
+async function doCall(
+  o: CallOptions,
+  input: ReturnType<typeof fromJson>,
+  toOut: (m: Parameters<typeof toJson>[1]) => JsonValue,
+  onMessage: (m: JsonValue) => void,
+  started: number,
+  traceId: string,
+): Promise<CallResult> {
+  const { method } = o
+  const registry = o.registry
 
   try {
     if (!isBrowserSupported(method, o.server)) {
@@ -95,12 +151,13 @@ export async function callMethod(o: CallOptions): Promise<CallResult> {
     const transport = makeTransport(o.server, o.protocol, o.registry)
     if (method.methodKind === 'unary') {
       const res = await transport.unary(method as DescMethodUnary, o.signal, o.timeoutMs, o.headers, input)
-      o.onMessage(toOut(res.message))
+      onMessage(toOut(res.message))
       return {
         ok: true,
         durationMs: performance.now() - started,
         header: entries(res.header),
         trailer: entries(res.trailer),
+        traceId,
       }
     }
     if (method.methodKind === 'server_streaming') {
@@ -113,12 +170,13 @@ export async function callMethod(o: CallOptions): Promise<CallResult> {
           yield input
         })(),
       )
-      for await (const m of res.message) o.onMessage(toOut(m))
+      for await (const m of res.message) onMessage(toOut(m))
       return {
         ok: true,
         durationMs: performance.now() - started,
         header: entries(res.header),
         trailer: entries(res.trailer),
+        traceId,
       }
     }
     throw new ConnectError(`unsupported method kind ${method.methodKind}`)
@@ -129,6 +187,7 @@ export async function callMethod(o: CallOptions): Promise<CallResult> {
       durationMs: performance.now() - started,
       header: entries(err.metadata),
       trailer: [],
+      traceId,
       error: {
         code: codeName(err.code),
         message: err.rawMessage,

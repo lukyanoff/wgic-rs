@@ -6,7 +6,11 @@ use connectrpc::ConnectRpcService;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub mod nats;
+pub mod telemetry;
 pub use nats::{NatsConfig, NatsTransport, serve_nats};
+pub use telemetry::{
+    OtelInterceptor, RequestContextOtel, TelemetryGuard, TracingTransport, init as init_telemetry,
+};
 
 pub mod proto {
     pub mod greet {
@@ -50,6 +54,9 @@ pub fn cors() -> CorsLayer {
             h("grpc-timeout"),
             h("x-grpc-web"),
             h("x-user-agent"),
+            h("traceparent"),
+            h("tracestate"),
+            h("baggage"),
         ])
         .expose_headers([
             h("grpc-status"),
@@ -65,13 +72,18 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Serve a connectrpc router with CORS enabled (HTTP/1.1 + HTTP/2 cleartext).
 pub async fn serve(router: connectrpc::Router, addr: SocketAddr) -> Result<(), BoxError> {
-    serve_http(ConnectRpcService::new(router), addr).await
+    serve_http(traced_service(router), addr).await
+}
+
+/// The connect service with the OTEL interceptor, shared by HTTP and NATS.
+fn traced_service(router: connectrpc::Router) -> ConnectRpcService {
+    ConnectRpcService::new(router).with_interceptor(OtelInterceptor)
 }
 
 async fn serve_http(service: ConnectRpcService, addr: SocketAddr) -> Result<(), BoxError> {
     let app = axum::Router::new().fallback_service(service).layer(cors());
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("http: listening on {addr}");
+    tracing::info!(%addr, "http: listening");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -81,7 +93,7 @@ async fn serve_http(service: ConnectRpcService, addr: SocketAddr) -> Result<(), 
 /// - NATS micro if `NATS_URL` is set (see [`NatsConfig::from_env`])
 pub async fn run(router: connectrpc::Router) -> Result<(), BoxError> {
     let methods: Vec<String> = router.methods().map(str::to_string).collect();
-    let service = ConnectRpcService::new(router);
+    let service = traced_service(router);
     let http_enabled = !matches!(
         std::env::var("HTTP_DISABLED").as_deref(),
         Ok("1") | Ok("true")

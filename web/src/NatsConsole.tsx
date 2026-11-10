@@ -21,6 +21,8 @@ import {
   type TailMsg,
   type Timed,
 } from './natsTools'
+import { endSpan, extractContext, flushSpans, SpanKind, startSpan } from './otel'
+import { TracePanel } from './TracePanel'
 
 type Tab = 'services' | 'ping' | 'stats' | 'request' | 'raw' | 'subscribe' | 'server'
 
@@ -516,8 +518,9 @@ interface CountSummary {
   distribution?: Distribution[]
 }
 
-function ReplyView({ r }: { r: ReqResult }) {
+function ReplyView({ r, trace = true }: { r: ReqResult; trace?: boolean }) {
   return (
+    <>
     <div className="reply">
       <div className="reply-status">
         <span className={`status ${r.ok ? 'ok' : 'bad'}`}>
@@ -529,6 +532,8 @@ function ReplyView({ r }: { r: ReqResult }) {
       <HeadersView headers={r.headers} />
       {!r.error && <PayloadView data={r.data} />}
     </div>
+    {trace && <TracePanel key={r.traceId} traceId={r.traceId} />}
+    </>
   )
 }
 
@@ -542,6 +547,7 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
   const [count, setCount] = useState('1')
   const [running, setRunning] = useState(false)
   const [last, setLast] = useState<ReqResult>()
+  const [batchTrace, setBatchTrace] = useState<string>()
   const [summary, setSummary] = useState<CountSummary>()
   const [error, setError] = useState<string>()
 
@@ -570,17 +576,30 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
     setRunning(true)
     setError(undefined)
     setSummary(undefined)
+    setBatchTrace(undefined)
+    // --count N: one trace with a parent span over all N requests.
+    const batch =
+      n > 1
+        ? startSpan(
+            `nats micro req ×${n}`,
+            SpanKind.INTERNAL,
+            { 'messaging.system': 'nats', 'micro.service': svc.name, 'micro.endpoint': ep.name, 'playground.count': n },
+            extractContext(hdrs),
+          )
+        : undefined
+    let batchError: string | undefined
     try {
       const before = n > 1 ? await microStats(url, svc.name) : undefined
       const rtts: number[] = []
       let ok = 0
       let r: ReqResult | undefined
       for (let i = 0; i < n; i++) {
-        r = await natsRequest(url, ep.subject, payload, hdrs, Number(timeoutMs) || 5000)
+        r = await natsRequest(url, ep.subject, payload, hdrs, Number(timeoutMs) || 5000, batch?.ctx)
         rtts.push(r.rttMs)
         if (r.ok) ok++
         if (r.error) break // transport failure: stop like the CLI does
       }
+      if (batch && ok < rtts.length) batchError = `${rtts.length - ok} of ${rtts.length} failed`
       setLast(r)
       if (n > 1) {
         const after = await microStats(url, svc.name)
@@ -601,8 +620,14 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
         })
       }
     } catch (e) {
+      batchError = String(e)
       setError(String(e))
     } finally {
+      if (batch) {
+        endSpan(batch.span, batchError)
+        void flushSpans()
+        setBatchTrace(batch.traceId)
+      }
       setRunning(false)
     }
   }
@@ -710,7 +735,8 @@ function RequestTab({ url, preset }: { url: string; preset?: Preset }) {
           <h4>Last reply</h4>
         </div>
       )}
-      {last && <ReplyView r={last} />}
+      {last && <ReplyView r={last} trace={!batchTrace} />}
+      {batchTrace && <TracePanel key={batchTrace} traceId={batchTrace} />}
     </section>
   )
 }
@@ -724,7 +750,7 @@ function RawTab({ url }: { url: string }) {
   const [headers, setHeaders] = useState('')
   const [timeoutMs, setTimeoutMs] = useState('5000')
   const [result, setResult] = useState<ReqResult>()
-  const [published, setPublished] = useState<string>()
+  const [published, setPublished] = useState<{ text: string; traceId: string }>()
   const [error, setError] = useState<string>()
   const [running, setRunning] = useState(false)
   const hdrs = parseHeaderLines(headers)
@@ -739,8 +765,11 @@ function RawTab({ url }: { url: string }) {
       if (mode === 'req') {
         setResult(await natsRequest(url, subject.trim(), payload, hdrs, Number(timeoutMs) || 5000))
       } else {
-        await natsPublish(url, subject.trim(), payload, hdrs)
-        setPublished(`Published ${new TextEncoder().encode(payload).length} B to ${subject.trim()}`)
+        const traceId = await natsPublish(url, subject.trim(), payload, hdrs)
+        setPublished({
+          text: `Published ${new TextEncoder().encode(payload).length} B to ${subject.trim()}`,
+          traceId,
+        })
       }
     } catch (e) {
       setError(String(e))
@@ -800,7 +829,8 @@ function RawTab({ url }: { url: string }) {
       </Toolbar>
       <CliHint cmd={cmd} />
       <ErrorBox error={error} />
-      {published && <div className="dim">{published}</div>}
+      {published && <div className="dim">{published.text}</div>}
+      {published && <TracePanel key={published.traceId} traceId={published.traceId} />}
       {result && <ReplyView r={result} />}
     </section>
   )
@@ -893,6 +923,11 @@ function SubscribeTab({ url }: { url: string }) {
                 <span className="dim mono small">{new Date(m.at).toLocaleTimeString()}</span>
                 <span className="mono">{m.subject}</span>
                 {m.reply && <span className="dim mono small">reply → {m.reply}</span>}
+                {m.traceId && (
+                  <span className="dim mono small" title={`trace ${m.traceId}`}>
+                    trace {m.traceId.slice(0, 8)}…
+                  </span>
+                )}
                 <span className="dim small right">
                   {m.headers.length ? `${m.headers.length} hdr · ` : ''}
                   {m.data.length} B
@@ -902,6 +937,7 @@ function SubscribeTab({ url }: { url: string }) {
                 <div className="tail-detail">
                   <HeadersView headers={m.headers} />
                   <PayloadView data={m.data} />
+                  {m.traceId && <TracePanel key={m.traceId} traceId={m.traceId} />}
                 </div>
               )}
             </li>
