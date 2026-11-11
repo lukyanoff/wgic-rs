@@ -1,7 +1,7 @@
 use super::*;
 use contracts::{LlmCallResponse, ProgressEvent, SensorCaptureResponse};
-use sdk::MapRegistry;
 use sdk::state::InMemoryStateStore;
+use sdk::{Level, MapRegistry, MemoryLogger};
 use std::collections::HashMap;
 
 struct FakeSensor;
@@ -30,6 +30,7 @@ impl ILlmCallerService for FakeLlm {
 #[tokio::test]
 async fn capture_runs_pipeline_and_updates_cas_state() {
     let state = Arc::new(InMemoryStateStore::new(VisionerInstanceState::default()));
+    let log = Arc::new(MemoryLogger::default());
 
     let mut sensors_map: HashMap<String, Arc<dyn ISensorService>> = HashMap::new();
     sensors_map.insert("cam1".into(), Arc::new(FakeSensor));
@@ -45,8 +46,11 @@ async fn capture_runs_pipeline_and_updates_cas_state() {
             ..Default::default()
         },
         state.clone(),
-        Arc::new(MapRegistry::new(sensors_map)),
-        Arc::new(MapRegistry::new(llms_map)),
+        VisionerClients {
+            sensors: Arc::new(MapRegistry::new(sensors_map)),
+            llms: Arc::new(MapRegistry::new(llms_map)),
+        },
+        log.clone(),
     );
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -70,4 +74,10 @@ async fn capture_runs_pipeline_and_updates_cas_state() {
         steps,
         vec!["capturing from cam1", "[cam1] sensor click", "asking agy (0 KB image/png)", "[agy] llm thinking", "done"]
     );
+
+    let entries = log.entries();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].level, Level::Info);
+    assert_eq!(entries[0].message, "pipeline completed");
+    assert_eq!(entries[0].fields, json!({ "sensor": "cam1", "llm_caller": "agy", "model": "fake-gpt" }));
 }

@@ -1,6 +1,6 @@
 use contracts::{ISensorService, SensorCaptureRequest, SensorEndpoint};
 use e2e::TestEnv;
-use sdk::ProgressSender;
+use sdk::{MemoryLogger, ProgressSender};
 use sensor::{Config, SensorHandler, SensorInstanceState, SensorKind, build_driver};
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ async fn sensor_captures_frame_streams_progress_and_updates_kv_state() -> anyhow
 
     let cfg = Config { kind: SensorKind::Fake, index: 0 };
     let state = env.state_store::<SensorInstanceState>("sensor", &inst);
-    let handler = Arc::new(SensorHandler::new(build_driver(&cfg), state.clone()));
+    let handler = Arc::new(SensorHandler::new(build_driver(&cfg), state.clone(), Arc::new(MemoryLogger::default())));
 
     env.mount_endpoint("sensor", &inst, Arc::new(SensorEndpoint(handler))).await?;
 

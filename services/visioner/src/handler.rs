@@ -5,7 +5,7 @@ use contracts::{
     VisionCaptureRequest, VisionCaptureResponse,
 };
 use sdk::state::IStateStore;
-use sdk::{ClientRegistry, ProgressSender, RpcError};
+use sdk::{ClientRegistry, ILogger, ProgressSender, RpcError, json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -15,11 +15,17 @@ pub struct VisionerInstanceState {
     pub last_model_used: String,
 }
 
+/// The downstream services the visioner calls, by instance name.
+pub struct VisionerClients {
+    pub sensors: Arc<dyn ClientRegistry<dyn ISensorService>>,
+    pub llms: Arc<dyn ClientRegistry<dyn ILlmCallerService>>,
+}
+
 pub struct VisionerHandler {
     cfg: Config,
     state: Arc<dyn IStateStore<VisionerInstanceState>>,
-    sensors: Arc<dyn ClientRegistry<dyn ISensorService>>,
-    llms: Arc<dyn ClientRegistry<dyn ILlmCallerService>>,
+    clients: VisionerClients,
+    log: Arc<dyn ILogger>,
 }
 
 impl VisionerHandler {
@@ -27,10 +33,16 @@ impl VisionerHandler {
     pub fn new(
         cfg: Config,
         state: Arc<dyn IStateStore<VisionerInstanceState>>,
-        sensors: Arc<dyn ClientRegistry<dyn ISensorService>>,
-        llms: Arc<dyn ClientRegistry<dyn ILlmCallerService>>,
+        clients: VisionerClients,
+        log: Arc<dyn ILogger>,
     ) -> Self {
-        Self { cfg, state, sensors, llms }
+        Self { cfg, state, clients, log }
+    }
+
+    /// Log a failed pipeline step and pass the error on unchanged.
+    fn failed(&self, step: &str, e: RpcError) -> RpcError {
+        self.log.warn("step failed", json!({ "step": step, "error.type": e.code, "error.message": e.message }));
+        e
     }
 }
 
@@ -63,12 +75,15 @@ impl IVisionerService for VisionerHandler {
             return Err(RpcError::invalid_arg("user_prompt is required"));
         }
 
-        let sensor = self.sensors.get(sensor_target)?;
-        let llm = self.llms.get(llm_target)?;
+        let sensor = self.clients.sensors.get(sensor_target)?;
+        let llm = self.clients.llms.get(llm_target)?;
 
         // Each source's steps arrive labelled, e.g. `[screen] capturing from screen`, `[agy] thinking`.
         progress.report(format!("capturing from {sensor_target}"));
-        let snap = sensor.capture(SensorCaptureRequest {}, progress.prefixed(sensor_target)).await?;
+        let snap = sensor
+            .capture(SensorCaptureRequest {}, progress.prefixed(sensor_target))
+            .await
+            .map_err(|e| self.failed("capture", e))?;
         if snap.data.is_empty() {
             return Err(RpcError::internal("sensor returned empty image"));
         }
@@ -80,7 +95,7 @@ impl IVisionerService for VisionerHandler {
             user_prompt: user_prompt.to_string(),
             images: vec![ImageInput { data: snap.data, mime_type: snap.mime_type.clone() }],
         };
-        let llm_reply = llm.call(request, progress.prefixed(llm_target)).await?;
+        let llm_reply = llm.call(request, progress.prefixed(llm_target)).await.map_err(|e| self.failed("ask", e))?;
 
         let model_used = llm_reply.model.clone();
         self.state
@@ -92,12 +107,8 @@ impl IVisionerService for VisionerHandler {
             .map_err(|e| RpcError::internal(format!("state CAS failed: {e}")))?;
 
         progress.report("done");
-        tracing::info!(
-            sensor = %sensor_target,
-            llm = %llm_target,
-            model = %llm_reply.model,
-            "visioner pipeline completed"
-        );
+        let fields = json!({ "sensor": sensor_target, "llm_caller": llm_target, "model": llm_reply.model });
+        self.log.info("pipeline completed", fields);
 
         Ok(VisionCaptureResponse { text: llm_reply.text, model: llm_reply.model, sensor_mime_type: snap.mime_type })
     }

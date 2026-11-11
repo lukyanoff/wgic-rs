@@ -1,6 +1,6 @@
 # LLM Caller Service Box Rules
 - Pure domain crate: depends ONLY on `contracts`, `sdk`, `reqwest`, `futures`, and `tempfile`.
-- Inject `Arc<dyn Driver>` and `Arc<dyn IStateStore<LlmInstanceState>>` via `LlmCallerHandler::new(...)`.
+- Inject `Arc<dyn Driver>`, `Arc<dyn IStateStore<LlmInstanceState>>` and `Arc<dyn ILogger>` via `LlmCallerHandler::new(...)`.
 - Every driver streams: `progress.report("thinking" | "writing")` once per stage change and `progress.text(delta)` for
   answer text. CLI drivers parse `--output-format stream-json` line by line (`cli::run_streaming` + a `parse_line`
   per driver); `http` parses SSE (`SseText`).

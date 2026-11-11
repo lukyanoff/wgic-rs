@@ -6,7 +6,7 @@ Three small services, each running as its own process:
 - **llm_caller** asks an LLM about it.
 - **visioner** chains the two.
 
-Every process is a NATS micro service. The repo also includes a web console, OpenTelemetry tracing (Jaeger) and metrics (Prometheus/Grafana).
+Every process is a NATS micro service. The repo also includes a web console, OpenTelemetry tracing (Jaeger), logs (Loki) and metrics (Prometheus), all shown in Grafana.
 The code layout and its rules are in `CLAUDE.md`.
 
 ## Requirements
@@ -19,7 +19,7 @@ The code layout and its rules are in `CLAUDE.md`.
 ## Run it
 
 ```bash
-podman compose up -d          # NATS (4222, ws 9222), otel-collector, Jaeger, Prometheus, Grafana
+podman compose up -d          # NATS (4222, ws 9222), otel-collector, Jaeger, Loki, Prometheus, Grafana
 scripts/run-all.sh            # sensors, LLM callers, 2 visioner replicas; Ctrl+C stops them all
 cd web && npm install && npm run dev   # console: http://localhost:5173
 ```
@@ -79,9 +79,33 @@ Error replies are standard micro errors, e.g. `Nats-Service-Error: deadline_exce
 | Traces: one per call, across every process, with log lines as span events | Jaeger http://localhost:16686 (service `wgic-console`, `visioner`, `sensor`, `llm_caller`) |
 | Metric `rpc_server_call_duration_seconds` (histogram), labels `service_name`, `wgic_instance`, `rpc_service`, `rpc_method`, `rpc_response_status_code` | Prometheus http://localhost:9090 |
 | Dashboard "RPC overview": calls/s, errors/s by code, p50/p95 latency by module and instance | Grafana http://localhost:3000 |
-| Logs (OTLP, with trace ids) | `podman compose logs -f otel-collector`; also on each process's stdout |
+| Logs: one schema for every service (service, instance, `rpc_method`, `trace_id`, the logger's fields) | Loki http://localhost:3100, query it in Grafana → Explore → Loki; also on each process's stdout |
 
 `RUST_LOG` sets the log filter (default `info`).
+
+Example LogQL queries:
+
+```
+{service_name="visioner"} | rpc_method="Capture" | error_type="deadline_exceeded"
+{wgic_instance="agy"} | log_category="llm_caller" | model="gemini-3.8-flash-low"
+{service_name=~".+"} | trace_id="<id from the console or Jaeger>"
+```
+
+In Grafana, a log line's **Jaeger** link opens its trace, and a Jaeger span's **Logs for this span** opens its lines.
+
+### Logging from a service
+
+A handler gets a logger in its constructor, like its other dependencies. It writes only its own facts; service,
+instance, method and trace id are added automatically.
+
+```rust
+pub fn new(driver: Arc<dyn Driver>, state: Arc<dyn IStateStore<S>>, log: Arc<dyn ILogger>) -> Self
+// …
+self.log.info("frame captured", json!({ "bytes": size, "mime_type": mime }));
+self.log.warn("step failed", json!({ "step": "ask", "error.type": e.code }));
+```
+
+Tests inject `MemoryLogger` and check `log.entries()`.
 
 ## Check before you finish
 

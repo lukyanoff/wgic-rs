@@ -185,7 +185,7 @@ impl Route {
             Err(e) => {
                 span.record("otel.status_code", "ERROR");
                 span.record("otel.status_message", e.message.as_str());
-                tracing::warn!(duration_ms, code, error = %e.message, "rpc failed");
+                tracing::warn!(duration_ms, error.type = code, error.message = %e.message, "rpc failed");
             }
         }
         let attributes = [
@@ -212,7 +212,7 @@ async fn respond(request: &Request, result: Result<Vec<u8>, RpcError>) {
     };
     // A failed reply (e.g. over the NATS 1 MB max_payload) would leave the caller waiting, so say why instead.
     if let Err(e) = request.respond(reply).await {
-        tracing::error!(error = %e, "failed to publish RPC reply");
+        tracing::error!(error.message = %e, "failed to publish RPC reply");
         let err = RpcError::internal(format!("reply could not be sent: {e}"));
         let _ = request.respond(Err(service_error(&err))).await;
     }

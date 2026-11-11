@@ -2,10 +2,10 @@ use contracts::{LlmCallerEndpoint, SensorEndpoint, VisionCaptureRequest, VisionC
 use e2e::TestEnv;
 use e2e::fake_openai::FakeOpenAi;
 use llm_caller::{LlmCallerHandler, LlmInstanceState};
-use sdk::{NatsLlmRegistry, NatsSensorRegistry, ProgressSender};
+use sdk::{MemoryLogger, NatsLlmRegistry, NatsSensorRegistry, ProgressSender};
 use sensor::{SensorHandler, SensorInstanceState, SensorKind};
 use std::sync::Arc;
-use visioner::{Config as VisionerConfig, VisionerHandler, VisionerInstanceState};
+use visioner::{Config as VisionerConfig, VisionerClients, VisionerHandler, VisionerInstanceState};
 
 #[tokio::test]
 async fn visioner_full_pipeline_with_ha_replicas_and_shared_cas_state() -> anyhow::Result<()> {
@@ -21,7 +21,11 @@ async fn visioner_full_pipeline_with_ha_replicas_and_shared_cas_state() -> anyho
     env.mount_endpoint(
         "sensor",
         &sensor_inst,
-        Arc::new(SensorEndpoint(Arc::new(SensorHandler::new(sensor_driver, sensor_state)))),
+        Arc::new(SensorEndpoint(Arc::new(SensorHandler::new(
+            sensor_driver,
+            sensor_state,
+            Arc::new(MemoryLogger::default()),
+        )))),
     )
     .await?;
 
@@ -36,7 +40,11 @@ async fn visioner_full_pipeline_with_ha_replicas_and_shared_cas_state() -> anyho
     env.mount_endpoint(
         "llm_caller",
         &llm_inst,
-        Arc::new(LlmCallerEndpoint(Arc::new(LlmCallerHandler::new(llm_driver, llm_state)))),
+        Arc::new(LlmCallerEndpoint(Arc::new(LlmCallerHandler::new(
+            llm_driver,
+            llm_state,
+            Arc::new(MemoryLogger::default()),
+        )))),
     )
     .await?;
 
@@ -54,8 +62,11 @@ async fn visioner_full_pipeline_with_ha_replicas_and_shared_cas_state() -> anyho
         let handler = Arc::new(VisionerHandler::new(
             v_cfg.clone(),
             shared_visioner_state.clone(),
-            Arc::new(NatsSensorRegistry::new(env.nc.clone(), e2e::CALL_TIMEOUT)),
-            Arc::new(NatsLlmRegistry::new(env.nc.clone(), e2e::CALL_TIMEOUT)),
+            VisionerClients {
+                sensors: Arc::new(NatsSensorRegistry::new(env.nc.clone(), e2e::CALL_TIMEOUT)),
+                llms: Arc::new(NatsLlmRegistry::new(env.nc.clone(), e2e::CALL_TIMEOUT)),
+            },
+            Arc::new(MemoryLogger::default()),
         ));
         env.mount_endpoint("visioner", &visioner_inst, Arc::new(VisionerEndpoint(handler))).await?;
     }

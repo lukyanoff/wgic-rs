@@ -1,0 +1,40 @@
+# Loki for local development: one process, data on the container's filesystem (gone with the container).
+# Logs arrive as OTLP from the collector (otel/collector.yaml → http://loki:3100/otlp).
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /tmp/loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /tmp/loki/chunks
+      rules_directory: /tmp/loki/rules
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  allow_structured_metadata: true
+  # Stream labels (indexed): Loki's defaults (service_name, service_instance_id, …) + the wgic instance.
+  # Every other attribute (rpc_method, trace_id, error_type, bytes, …) is structured metadata.
+  otlp_config:
+    resource_attributes:
+      attributes_config:
+        - action: index_label
+          attributes: [wgic.instance]
+
+analytics:
+  reporting_enabled: false

@@ -2,7 +2,7 @@ use crate::drivers::Driver;
 use async_trait::async_trait;
 use contracts::{ISensorService, SensorCaptureRequest, SensorCaptureResponse};
 use sdk::state::IStateStore;
-use sdk::{ProgressSender, RpcError};
+use sdk::{ILogger, ProgressSender, RpcError, json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -16,11 +16,16 @@ pub struct SensorInstanceState {
 pub struct SensorHandler {
     driver: Arc<dyn Driver>,
     state: Arc<dyn IStateStore<SensorInstanceState>>,
+    log: Arc<dyn ILogger>,
 }
 
 impl SensorHandler {
-    pub fn new(driver: Arc<dyn Driver>, state: Arc<dyn IStateStore<SensorInstanceState>>) -> Self {
-        Self { driver, state }
+    pub fn new(
+        driver: Arc<dyn Driver>,
+        state: Arc<dyn IStateStore<SensorInstanceState>>,
+        log: Arc<dyn ILogger>,
+    ) -> Self {
+        Self { driver, state, log }
     }
 }
 
@@ -48,7 +53,7 @@ impl ISensorService for SensorHandler {
             .map_err(|e| RpcError::internal(format!("sensor state CAS failed: {e}")))?;
 
         progress.report(format!("captured {size} bytes"));
-        tracing::info!(bytes = size, mime = %out.mime_type, "sensor frame captured");
+        self.log.info("frame captured", json!({ "bytes": size, "mime_type": out.mime_type }));
 
         Ok(SensorCaptureResponse { data: out.data, mime_type: out.mime_type })
     }

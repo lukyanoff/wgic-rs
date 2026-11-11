@@ -1,11 +1,13 @@
 use super::*;
 use crate::drivers::fake::FakeDriver;
+use sdk::MemoryLogger;
 use sdk::state::InMemoryStateStore;
 
 #[tokio::test]
 async fn sensor_handler_captures_fake_frame_and_updates_cas_state() {
     let state = Arc::new(InMemoryStateStore::new(SensorInstanceState::default()));
-    let handler = SensorHandler::new(Arc::new(FakeDriver), state.clone());
+    let log = Arc::new(MemoryLogger::default());
+    let handler = SensorHandler::new(Arc::new(FakeDriver), state.clone(), log.clone());
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let res = handler.capture(SensorCaptureRequest {}, ProgressSender::new(tx)).await.unwrap();
@@ -23,4 +25,10 @@ async fn sensor_handler_captures_fake_frame_and_updates_cas_state() {
         steps.push(s);
     }
     assert_eq!(steps.len(), 2);
+
+    let entries = log.entries();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].message, "frame captured");
+    assert_eq!(entries[0].fields["bytes"], json!(res.data.len()));
+    assert_eq!(entries[0].fields["mime_type"], "image/png");
 }

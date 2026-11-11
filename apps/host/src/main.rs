@@ -4,7 +4,7 @@
 use clap::Parser;
 use contracts::{LlmCallerEndpoint, SensorEndpoint, VisionerEndpoint};
 use sdk::state::NatsKvStateStore;
-use sdk::{NatsLlmRegistry, NatsSensorRegistry, RawRpcEndpoint};
+use sdk::{ILogger, NatsLlmRegistry, NatsSensorRegistry, OtelLogger, RawRpcEndpoint};
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
@@ -38,32 +38,36 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     let state_key = format!("{}.{}", args.module, args.instance);
+    // One logger per process; its entries carry service, instance and trace context automatically.
+    let log: Arc<dyn ILogger> = Arc::new(OtelLogger::new(&args.module));
 
     let endpoint: Arc<dyn RawRpcEndpoint> = match args.module.as_str() {
         "sensor" => {
             let cfg: sensor::Config = serde_json::from_str(&args.config)?;
             let driver = sensor::build_driver(&cfg);
             let state = Arc::new(NatsKvStateStore::new(kv, state_key));
-            Arc::new(SensorEndpoint(Arc::new(sensor::SensorHandler::new(driver, state))))
+            Arc::new(SensorEndpoint(Arc::new(sensor::SensorHandler::new(driver, state, log))))
         }
         "llm_caller" => {
             let cfg: llm_caller::Config = serde_json::from_str(&args.config)?;
             let driver = llm_caller::build_driver(cfg)?;
             let state = Arc::new(NatsKvStateStore::new(kv, state_key));
-            Arc::new(LlmCallerEndpoint(Arc::new(llm_caller::LlmCallerHandler::new(driver, state))))
+            Arc::new(LlmCallerEndpoint(Arc::new(llm_caller::LlmCallerHandler::new(driver, state, log))))
         }
         "visioner" => {
             let cfg: visioner::Config = serde_json::from_str(&args.config)?;
             let state = Arc::new(NatsKvStateStore::new(kv, state_key));
-            let sensors = Arc::new(NatsSensorRegistry::new(nc.clone(), cfg.sensor_timeout()));
-            let llms = Arc::new(NatsLlmRegistry::new(nc.clone(), cfg.llm_timeout()));
-            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(cfg, state, sensors, llms))))
+            let clients = visioner::VisionerClients {
+                sensors: Arc::new(NatsSensorRegistry::new(nc.clone(), cfg.sensor_timeout())),
+                llms: Arc::new(NatsLlmRegistry::new(nc.clone(), cfg.llm_timeout())),
+            };
+            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(cfg, state, clients, log))))
         }
         other => anyhow::bail!("unknown module: {other}"),
     };
 
     let _handles = sdk::serve_endpoint(nc, &args.module, &args.instance, endpoint).await?;
     tokio::signal::ctrl_c().await?;
-    tracing::info!(module = %args.module, instance = %args.instance, "shutting down");
+    tracing::info!("shutting down");
     Ok(())
 }

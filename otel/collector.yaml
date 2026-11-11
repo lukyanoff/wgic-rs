@@ -3,7 +3,7 @@
 #
 #   Rust servers/clients ─┐
 #   browser playground ───┼─ OTLP (4317 gRPC, 4318 HTTP) ─▶ traces  ─▶ Jaeger
-#                         │                                 logs    ─▶ debug (collector stdout)
+#                         │                                 logs    ─▶ Loki ◀─ Grafana
 #                         │                                 metrics ─▶ :8889 ◀─ Prometheus ◀─ Grafana
 
 receivers:
@@ -22,25 +22,25 @@ receivers:
 processors:
   batch:
     timeout: 500ms
-  # Service logs (kernel::Logger) carry their key/value pairs as one JSON string in
-  # `log.fields`; turn them into real log attributes.
+  # Service logs (`sdk::OtelLogger`) carry their fields as one JSON string in `log_fields`; turn them into real
+  # log attributes. The Rust OTLP bridge leaves the event time empty, so use the time the record was observed.
   transform/service_fields:
     error_mode: ignore
     log_statements:
       - context: log
         statements:
-          - merge_maps(attributes, ParseJSON(attributes["log.fields"]), "upsert") where attributes["log.fields"] != nil
-          - delete_key(attributes, "log.fields")
+          - merge_maps(attributes, ParseJSON(attributes["log_fields"]), "upsert") where attributes["log_fields"] != nil
+          - delete_key(attributes, "log_fields")
+          - set(time, observed_time) where time_unix_nano == 0
 
 exporters:
   otlp/jaeger:
     endpoint: jaeger:4317
     tls:
       insecure: true
-  # Log records (with trace_id/span_id) are printed here:
-  #   podman compose logs -f otel-collector
-  debug:
-    verbosity: detailed
+  # Log records (with trace_id/span_id and their attributes as structured metadata). Query in Grafana → Explore.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
   # Scraped by Prometheus (prometheus/prometheus.yml). `service.name` etc. become labels.
   prometheus:
     endpoint: 0.0.0.0:8889
@@ -56,7 +56,7 @@ service:
     logs:
       receivers: [otlp]
       processors: [transform/service_fields, batch]
-      exporters: [debug]
+      exporters: [otlphttp/loki]
     metrics:
       receivers: [otlp]
       processors: [batch]

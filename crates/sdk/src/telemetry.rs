@@ -10,7 +10,7 @@ use std::time::Duration;
 use opentelemetry::propagation::{Extractor, Injector, TextMapCompositePropagator};
 use opentelemetry::trace::{TraceContextExt, TracerProvider as _};
 use opentelemetry::{Context, KeyValue, global};
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_appender_tracing::layer::{OpenTelemetryTracingBridge, TracingSpanAttributes};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
@@ -25,6 +25,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 // ============================================================================
 // Setup
 // ============================================================================
+
+/// Span fields copied onto every log line inside the span: the call being served (`rpc.server`) and the
+/// downstream target (`rpc.client`). An allowlist, so `otel.*` keys and handler arguments stay out of logs.
+const SPAN_LOG_KEYS: [&str; 4] = ["rpc.system", "rpc.service", "rpc.method", "wgic.target"];
 
 /// Flushes and shuts down the exporters when dropped (≈ C# `IDisposable`). Keep it alive for the whole `main`.
 #[must_use = "dropping the guard shuts telemetry down"]
@@ -53,6 +57,7 @@ pub fn init_telemetry(module: &str, instance: &str) -> TelemetryGuard {
         .with_attributes([
             KeyValue::new("wgic.instance", instance.to_string()),
             KeyValue::new("service.instance.id", uuid::Uuid::new_v4().to_string()),
+            KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
         ])
         .build();
     let export = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok_and(|v| !v.trim().is_empty());
@@ -64,7 +69,7 @@ pub fn init_telemetry(module: &str, instance: &str) -> TelemetryGuard {
     global::set_tracer_provider(guard.tracer_provider.clone());
     global::set_meter_provider(guard.meter_provider.clone());
     install_subscriber(&guard);
-    tracing::info!(module, instance, otlp_export = export, "telemetry initialized");
+    tracing::info!(otlp_export = export, "telemetry initialized");
     guard
 }
 
@@ -117,7 +122,10 @@ fn install_subscriber(guard: &TelemetryGuard) {
     let spans = tracing_opentelemetry::layer()
         .with_tracer(guard.tracer_provider.tracer("wgic"))
         .with_error_events_to_status(true);
-    let otel_logs = OpenTelemetryTracingBridge::new(&guard.logger_provider).with_filter(not_otel_internals);
+    let otel_logs = OpenTelemetryTracingBridge::builder(&guard.logger_provider)
+        .with_tracing_span_attributes(TracingSpanAttributes::allowlist(SPAN_LOG_KEYS))
+        .build()
+        .with_filter(not_otel_internals);
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = tracing_subscriber::registry()
         .with(filter)

@@ -11,3 +11,25 @@ datasources:
     type: jaeger
     access: proxy
     url: http://jaeger:16686
+    jsonData:
+      # A span → "Logs for this span" (Loki lines with the same trace id).
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        customQuery: true
+        query: '{service_name=~".+"} | trace_id="$${__trace.traceId}"'
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # A log line → its trace in Jaeger (`trace_id` is structured metadata).
+      derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: jaeger
+          url: "$${__value.raw}"
+          urlDisplayLabel: Jaeger

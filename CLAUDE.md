@@ -15,7 +15,7 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
 
 ### Boundary Rules (Enforced by `scripts/check-boxes.sh`)
 1. **`crates/contracts`**: Contains ONLY `prost` Protobuf structs, service traits (`ISensorService`, `ILlmCallerService`, `IVisionerService`), NATS client adapters, and `RawRpcEndpoint` dispatchers. Must NEVER depend on `services/*` or `apps/host`.
-2. **`crates/sdk`**: Contains NATS micro serving (`server.rs`: `serve_endpoint`, timeouts, progress forwarding), calling (`client.rs`: `NatsRpcClient`, typed clients, registries), the reply-inbox wire format (`wire.rs`: `StreamFrame`), `IStateStore<S>` (Compare-And-Swap over NATS KV + `InMemoryStateStore`), and OpenTelemetry (`telemetry.rs`: traces, logs, metrics, `traceparent` in NATS headers). Must NEVER know what specific services exist.
+2. **`crates/sdk`**: Contains the injected service logger (`log.rs`: `ILogger`, `OtelLogger`, `MemoryLogger`), NATS micro serving (`server.rs`: `serve_endpoint`, timeouts, progress forwarding), calling (`client.rs`: `NatsRpcClient`, typed clients, registries), the reply-inbox wire format (`wire.rs`: `StreamFrame`), `IStateStore<S>` (Compare-And-Swap over NATS KV + `InMemoryStateStore`), and OpenTelemetry (`telemetry.rs`: traces, logs, metrics, `traceparent` in NATS headers). Must NEVER know what specific services exist.
 3. **`services/*`**: Pure, isolated domain crates.
    - Must depend ONLY on `crates/contracts`, `crates/sdk`, and domain-specific driver libraries.
    - Must NEVER depend on `async-nats` directly or on other `services/*` crates.
@@ -27,7 +27,7 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
 
 1. **True Constructor DI Only (No Service Locator):**
    - Never pass a `Deps` or `Context` bag into handler methods.
-   - Every service handler (`SensorHandler`, `LlmCallerHandler`, `VisionerHandler`) must receive all external dependencies (`Arc<dyn Driver>`, `Arc<dyn IStateStore<S>>`, `Arc<dyn ClientRegistry<dyn IService>>`) via `pub fn new(...)`.
+   - Every service handler (`SensorHandler`, `LlmCallerHandler`, `VisionerHandler`) must receive all external dependencies (`Arc<dyn Driver>`, `Arc<dyn IStateStore<S>>`, `Arc<dyn ClientRegistry<dyn IService>>`, `Arc<dyn ILogger>`) via `pub fn new(...)`.
 2. **Unified RPC Signature with `ProgressSender`:**
    - Do not split unary vs. streaming traits. Every RPC trait method takes `(req: Req, progress: ProgressSender) -> Result<Res, RpcError>`.
    - Call `progress.report("stage description")` for a step (`0x01`) and `progress.text(delta)` for a piece of the answer
@@ -38,16 +38,24 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
 3. **Compare-And-Swap (CAS) Shared Instance State:**
    - Every service instance owns a typed state struct persisted in NATS KV via `Arc<dyn IStateStore<State>>`.
    - Always mutate state using `self.state.update_cas(Box::new(|s| { ... })).await` so multiple High-Availability (HA) replicas sharing an `--instance` ID never overwrite each other's updates.
-4. **Standard `tracing` Only (Zero Custom Logger/Meter Boilerplate):**
-   - Never create custom `Logger` or `Meter` traits.
-   - Annotate RPC methods with `#[tracing::instrument(skip(self, req, progress))]` and log events using standard `tracing::info!`, `tracing::warn!`, and `tracing::error!`.
+4. **Logging: the injected `ILogger` in services, `tracing` in infrastructure:**
+   - Services log only through `self.log` (`Arc<dyn sdk::ILogger>`, built once in `apps/host` as
+     `OtelLogger::new(module)`): `self.log.info("frame captured", json!({ "bytes": size, "mime_type": mime }))`.
+     Never call `tracing::info!` etc. from `services/*`.
+   - Field names: snake_case for domain fields, OTel names where one exists (`error.type` = the RPC code,
+     `error.message`, `duration_ms`). Never repeat module, instance or method: every entry already carries
+     `service.name`, `wgic.instance`, `trace_id`/`span_id`, `rpc.service`/`rpc.method` (the call being served) and
+     `wgic.target` (a downstream call), from the OTel resource and the active span.
+   - `crates/sdk` and `apps/host` use `tracing::info!/warn!/error!` directly, with the same field rule.
+   - Spans stay `tracing`: annotate RPC methods with `#[tracing::instrument(skip(self, req, progress))]`.
+   - No custom `Meter` traits: metrics are the sdk's `rpc.server.call.duration` histogram.
 5. **No Explicit Lifetimes in Business Logic:**
    - Keep structs and traits `'static` using owned types (`String`, `Vec<u8>`, `Arc<dyn Trait>`).
 6. **RAII Resource Cleanup:**
    - Never manage temporary files with manual `fs::remove_file` or atomic counters. Always use `tempfile::Builder` so files are cleaned up automatically on `Drop`.
 7. **Unit Tests alongside Implementation:**
    - Place unit tests in `src/*_tests.rs` wired via `#[cfg(test)] mod ..._tests;`.
-   - Test handlers using `InMemoryStateStore` and `MapRegistry` mocks injected via `new()`—unit tests must run in <10ms with zero network or NATS dependencies.
+   - Test handlers using `InMemoryStateStore`, `MapRegistry` and `MemoryLogger` (assert `log.entries()`) injected via `new()`—unit tests must run in <10ms with zero network or NATS dependencies.
 
 ---
 
@@ -70,8 +78,9 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
     `Nats-Service-Error-Code` (400 invalid_argument, 404 not_found, 500 internal, 503 unavailable, 504 deadline_exceeded).
   - NATS "no responders" (status 503) = nothing serves that instance -> `unavailable`.
 - **Observability:** set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318` (`scripts/run-all.sh` does) to export
-  traces → Jaeger (:16686), logs → collector, and the `rpc.server.call.duration` histogram → Prometheus (:9090) →
-  Grafana "RPC overview" (:3000).
+  traces → Jaeger (:16686), logs → Loki (:3100), and the `rpc.server.call.duration` histogram → Prometheus (:9090).
+  Grafana (:3000) shows all three; a log line links to its trace and a span to its logs. Service log fields travel as
+  one JSON string (`log_fields`) that the collector flattens into attributes (`otel/collector.yaml`).
 
 ---
 

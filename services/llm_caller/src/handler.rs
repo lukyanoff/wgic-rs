@@ -2,7 +2,7 @@ use crate::drivers::{Driver, ImageArg, PromptArgs};
 use async_trait::async_trait;
 use contracts::{ILlmCallerService, LlmCallRequest, LlmCallResponse};
 use sdk::state::IStateStore;
-use sdk::{ProgressSender, RpcError};
+use sdk::{ILogger, ProgressSender, RpcError, json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -15,11 +15,12 @@ pub struct LlmInstanceState {
 pub struct LlmCallerHandler {
     driver: Arc<dyn Driver>,
     state: Arc<dyn IStateStore<LlmInstanceState>>,
+    log: Arc<dyn ILogger>,
 }
 
 impl LlmCallerHandler {
-    pub fn new(driver: Arc<dyn Driver>, state: Arc<dyn IStateStore<LlmInstanceState>>) -> Self {
-        Self { driver, state }
+    pub fn new(driver: Arc<dyn Driver>, state: Arc<dyn IStateStore<LlmInstanceState>>, log: Arc<dyn ILogger>) -> Self {
+        Self { driver, state, log }
     }
 }
 
@@ -40,7 +41,13 @@ impl ILlmCallerService for LlmCallerHandler {
             images: req.images.into_iter().map(|i| ImageArg { data: i.data, mime_type: i.mime_type }).collect(),
         };
 
-        let out = self.driver.call(args, progress.clone()).await?;
+        let out = match self.driver.call(args, progress.clone()).await {
+            Ok(out) => out,
+            Err(e) => {
+                self.log.warn("llm failed", json!({ "error.type": e.code, "error.message": e.message }));
+                return Err(e);
+            }
+        };
 
         let model_used = out.model.clone();
         self.state
@@ -51,7 +58,7 @@ impl ILlmCallerService for LlmCallerHandler {
             .await
             .map_err(|e| RpcError::internal(format!("llm state CAS failed: {e}")))?;
 
-        tracing::info!(model = %out.model, chars = out.text.len(), "LLM call succeeded");
+        self.log.info("llm answered", json!({ "model": out.model, "chars": out.text.len() }));
 
         Ok(LlmCallResponse { text: out.text, model: out.model })
     }

@@ -73,6 +73,8 @@ impl NatsRpcClient {
         if let Err(e) = &result {
             span.record("otel.status_code", "ERROR");
             span.record("otel.status_message", e.to_string().as_str());
+            // Logged inside the client span, so the line carries `wgic.target` (which downstream call failed).
+            span.in_scope(|| tracing::warn!(error.type = e.code, error.message = %e.message, "rpc call failed"));
         }
         Res::decode(result?.as_slice()).map_err(|e| RpcError::internal(format!("decode error: {e}")))
     }

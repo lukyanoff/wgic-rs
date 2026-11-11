@@ -2,7 +2,7 @@ use contracts::{ILlmCallerService, ImageInput, LlmCallRequest, LlmCallerEndpoint
 use e2e::TestEnv;
 use e2e::fake_openai::FakeOpenAi;
 use llm_caller::{Config, DriverKind, LlmCallerHandler, LlmInstanceState, build_driver};
-use sdk::ProgressSender;
+use sdk::{MemoryLogger, ProgressSender};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -21,7 +21,7 @@ async fn llm_caller_invokes_http_driver_and_updates_cas_state() -> anyhow::Resul
 
     let state = env.state_store::<LlmInstanceState>("llm_caller", &inst);
     let driver = build_driver(cfg)?;
-    let handler = Arc::new(LlmCallerHandler::new(driver, state.clone()));
+    let handler = Arc::new(LlmCallerHandler::new(driver, state.clone(), Arc::new(MemoryLogger::default())));
 
     env.mount_endpoint("llm_caller", &inst, Arc::new(LlmCallerEndpoint(handler))).await?;
 
@@ -53,7 +53,7 @@ async fn error_codes_cross_nats_as_micro_error_replies() -> anyhow::Result<()> {
     let inst = env.instance_name("errors");
     let cfg = Config { kind: DriverKind::Http, endpoint: "http://127.0.0.1:9/never".into(), ..Default::default() };
     let state = env.state_store::<LlmInstanceState>("llm_caller", &inst);
-    let handler = Arc::new(LlmCallerHandler::new(build_driver(cfg)?, state));
+    let handler = Arc::new(LlmCallerHandler::new(build_driver(cfg)?, state, Arc::new(MemoryLogger::default())));
     env.mount_endpoint("llm_caller", &inst, Arc::new(LlmCallerEndpoint(handler))).await?;
 
     // Handler error → `Nats-Service-Error` header → the same code on the client.
