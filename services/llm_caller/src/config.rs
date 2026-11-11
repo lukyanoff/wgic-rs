@@ -15,6 +15,8 @@ pub struct Config {
     pub kind: DriverKind,
     pub binary: String,
     pub model: String,
+    /// Reasoning effort (`--effort`), agy only for now. Empty = `low`.
+    pub effort: String,
     pub endpoint: String,
     pub api_key: String,
 }

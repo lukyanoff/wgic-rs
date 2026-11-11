@@ -31,7 +31,7 @@ One process is `host --module <module> --instance <id> --config '<json>'`:
 | Module | Config (JSON) |
 |---|---|
 | `sensor` | `{"kind":"screen","index":0}`, `{"kind":"camera","index":2}` (N in `/dev/videoN`), `{"kind":"fake"}` |
-| `llm_caller` | `{"kind":"agy"}`, `{"kind":"claude","model":"claude-haiku-5-5"}`, `{"kind":"http","endpoint":"…","api_key":"…","model":"…"}` |
+| `llm_caller` | `{"kind":"agy"}` (defaults to `"model":"gemini-3.8-flash-low","effort":"low"`), `{"kind":"claude","model":"claude-haiku-5-5"}`, `{"kind":"http","endpoint":"…","api_key":"…","model":"…"}` |
 | `visioner` | `{"sensor":"screen","llm_caller":"agy","user_prompt":"…","sensor_timeout_secs":15,"llm_timeout_secs":120}` |
 
 To add a replica, start the same `--module --instance` again. NATS load-balances between them (queue group `q.<module>.<instance>`), and they share state in the KV bucket `wgic_instance_state`.
@@ -58,7 +58,7 @@ While the call runs you see:
 
 ## NATS micro commands
 
-Run them through the nats-box container: `podman compose run --rm nats-box <command>`.
+Run them with `scripts/nats.sh <command>` (any folder; it runs the nats-box container), e.g. `scripts/nats.sh micro ls`.
 
 ```bash
 nats micro ls                  # services (sensor, llm_caller, visioner) and every running process

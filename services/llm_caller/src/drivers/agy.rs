@@ -14,22 +14,21 @@ use serde_json::Value;
 
 pub struct AgyDriver {
     binary: String,
-    /// Empty = the CLI's default model.
     model: String,
+    /// `low` | `medium` | `high` | … (`--effort`).
+    effort: String,
 }
 
 impl AgyDriver {
-    pub fn new(binary: String, model: String) -> Self {
-        Self { binary, model }
+    pub fn new(binary: String, model: String, effort: String) -> Self {
+        Self { binary, model, effort }
     }
 
     /// agy has no system-prompt flag: the whole prompt goes last, after `-p`.
     pub fn args(&self, prompt: String) -> Vec<String> {
         let flags = ["--output-format", "stream-json", "--sandbox", "--mode", "plan", "--disable-slash-commands"];
         let mut out: Vec<String> = flags.into_iter().map(String::from).collect();
-        if !self.model.is_empty() {
-            out.extend(["--model".into(), self.model.clone()]);
-        }
+        out.extend(["--model".into(), self.model.clone(), "--effort".into(), self.effort.clone()]);
         out.extend(["-p".into(), prompt]);
         out
     }
@@ -42,8 +41,7 @@ impl Driver for AgyDriver {
         let prompt = format!("{}{}", args.combined_prompt(), images_note(&work_dir.image_names));
         let run = CliRun { program: self.binary.clone(), args: self.args(prompt), stdin: None };
         let text = run_streaming(run, work_dir.path(), parse_line, &progress).await?;
-        let model = if self.model.is_empty() { "agy".to_string() } else { self.model.clone() };
-        Ok(LlmOutput { text, model })
+        Ok(LlmOutput { text, model: self.model.clone() })
     }
 }
 

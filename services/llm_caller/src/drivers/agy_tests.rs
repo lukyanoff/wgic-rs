@@ -4,8 +4,11 @@ use super::*;
 
 #[test]
 fn args_are_sandboxed_and_end_with_the_prompt() {
-    let args = AgyDriver::new("agy".into(), "gemini-3.8-flash-low".into()).args("hi".into());
-    assert!(args.join(" ").contains("--sandbox --mode plan --disable-slash-commands --model gemini-3.8-flash-low"));
+    let args = AgyDriver::new("agy".into(), "gemini-3.8-flash-low".into(), "low".into()).args("hi".into());
+    let joined = args.join(" ");
+    assert!(
+        joined.contains("--sandbox --mode plan --disable-slash-commands --model gemini-3.8-flash-low --effort low")
+    );
     assert_eq!(args[args.len() - 2..], ["-p", "hi"]);
 }
 

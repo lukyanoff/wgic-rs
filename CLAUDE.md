@@ -54,8 +54,7 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
 ## 3. NATS Subject, Wire & HA Conventions
 
 - **NATS micro service:** every host process is a micro service named `<module>` (metadata `instance`), one endpoint
-  `<Service>-<Method>` per method. See them with `podman compose run --rm nats-box nats micro ls | info visioner |
-  stats visioner | ping`, or in the web console's "Running services" table.
+  `<Service>-<Method>` per method. See them with `scripts/nats.sh micro ls | info visioner | stats visioner | ping`, or in the web console's "Running services" table.
 - **RPC Subject:** `rpc.<module>.<instance>.<proto_package.ServiceName>.<MethodName>`
   - Example: `rpc.visioner.default.visioner.v1.VisionerService.Capture`
 - **Queue Group (HA Load Balancing):** `q.<module>.<instance>`

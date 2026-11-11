@@ -6,4 +6,5 @@
   per driver); `http` parses SSE (`SseText`).
 - CLI processes run with `kill_on_drop(true)` in a `tempfile` work folder (`cli::WorkDir`), so a timed-out call
   leaves no process or file behind.
-- Config `model` is passed to the CLI (`--model`) only when set; empty = the CLI's default.
+- Config `model` is passed to the CLI (`--model`) only when set; empty = the CLI's default. Exception: agy defaults
+  to the fastest setup, `--model gemini-3.8-flash-low --effort low` (config `model` / `effort` override it).

@@ -71,11 +71,18 @@ pub trait Driver: Send + Sync + 'static {
 // Factory (≈ a DI registration switch)
 // ============================================================================
 
-/// `model` empty = the CLI's own default model (then the reported model is just the driver name).
+/// The smallest and fastest model in `agy models`.
+pub const AGY_FAST_MODEL: &str = "gemini-3.8-flash-low";
+
+/// agy defaults to the fastest setup: the smallest model (`gemini-3.8-flash-low`) at `--effort low`.
+/// claude: `model` empty = the CLI's own default model (then the reported model is just the driver name).
 pub fn build_driver(cfg: Config) -> anyhow::Result<Arc<dyn Driver>> {
     let or = |value: String, fallback: &str| if value.is_empty() { fallback.to_string() } else { value };
     match cfg.kind {
-        DriverKind::Agy => Ok(Arc::new(agy::AgyDriver::new(or(cfg.binary, "agy"), cfg.model))),
+        DriverKind::Agy => {
+            let model = or(cfg.model, AGY_FAST_MODEL);
+            Ok(Arc::new(agy::AgyDriver::new(or(cfg.binary, "agy"), model, or(cfg.effort, "low"))))
+        }
         DriverKind::Claude => Ok(Arc::new(claude::ClaudeDriver::new(or(cfg.binary, "claude"), cfg.model))),
         DriverKind::Http => {
             let endpoint = or(cfg.endpoint, "https://openrouter.ai/api/v1/chat/completions");

@@ -14,7 +14,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # NATS CLI, run on demand: podman compose run --rm nats-box nats micro ls
+  # NATS CLI, run on demand: scripts/nats.sh micro ls
   nats-box:
     image: docker.io/natsio/nats-box:latest
     profiles: ["tools"]
