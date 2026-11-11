@@ -7,6 +7,7 @@ members = [
     "services/sensor",
     "services/llm_caller",
     "services/visioner",
+    "services/okf",
     "tests/e2e",
 ]
 

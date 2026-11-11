@@ -6,7 +6,7 @@ This repository implements a distributed, NATS-native actor/service mesh in Rust
 
 ```text
 apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
-  ├──> services/* (Box 3: Business Logic — sensor, llm_caller, visioner)
+  ├──> services/* (Box 3: Business Logic — sensor, llm_caller, visioner, okf)
   │      ├──> crates/sdk
   │      └──> crates/contracts
   └──> crates/sdk (Box 2: Infrastructure — NATS RPC, StreamFrame, CAS StateStore, Telemetry)
@@ -14,7 +14,7 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
 ```
 
 ### Boundary Rules (Enforced by `scripts/check-boxes.sh`)
-1. **`crates/contracts`**: Contains ONLY `prost` Protobuf structs, service traits (`ISensorService`, `ILlmCallerService`, `IVisionerService`), NATS client adapters, and `RawRpcEndpoint` dispatchers. Must NEVER depend on `services/*` or `apps/host`.
+1. **`crates/contracts`**: Contains ONLY `prost` Protobuf structs, service traits (`ISensorService`, `ILlmCallerService`, `IVisionerService`, `IOkfWriterService`, `IOkfReaderService`), NATS client adapters, and `RawRpcEndpoint` dispatchers. Must NEVER depend on `services/*` or `apps/host`.
 2. **`crates/sdk`**: Contains NATS transport (`NatsRpcClient`, `serve_endpoint`), `StreamFrame` (`0x01` Progress, `0x02` Ok, `0x03` Err), `IStateStore<S>` (Compare-And-Swap over NATS KV + `InMemoryStateStore`), `ClientRegistry<T>`, and `tracing` initialization. Must NEVER know what specific services exist.
 3. **`services/*`**: Pure, isolated domain crates.
    - Must depend ONLY on `crates/contracts`, `crates/sdk`, and domain-specific driver libraries.
@@ -27,7 +27,7 @@ apps/host (Box 4: Composition Root — CLI, config parsing, DI wiring)
 
 1. **True Constructor DI Only (No Service Locator):**
    - Never pass a `Deps` or `Context` bag into handler methods.
-   - Every service handler (`SensorHandler`, `LlmCallerHandler`, `VisionerHandler`) must receive all external dependencies (`Arc<dyn Driver>`, `Arc<dyn IStateStore<S>>`, `Arc<dyn ClientRegistry<dyn IService>>`) via `pub fn new(...)`.
+   - Every service handler (`SensorHandler`, `LlmCallerHandler`, `VisionerHandler`, `OkfWriterHandler`, `OkfReaderHandler`) must receive all external dependencies (`Arc<dyn Driver>`, `Arc<dyn IStateStore<S>>`, `Arc<dyn ClientRegistry<dyn IService>>`) via `pub fn new(...)`.
 2. **Unified RPC Signature with `ProgressSender`:**
    - Do not split unary vs. streaming traits. Every RPC trait method takes `(req: Req, progress: ProgressSender) -> Result<Res, RpcError>`.
    - Call `progress.report("stage description")` to emit real-time progress frames (`0x01`) to the caller.

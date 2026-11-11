@@ -13,14 +13,14 @@ check_forbidden() {
 }
 
 # Box 1 (contracts): pure abstractions & DTOs — zero internal dependencies
-check_forbidden "contracts" "^(sdk|sensor|llm_caller|visioner|host)$"
+check_forbidden "contracts" "^(sdk|sensor|llm_caller|visioner|okf|host)$"
 
 # Box 2 (sdk): NATS infrastructure — depends on contracts, never on services or host
-check_forbidden "sdk" "^(sensor|llm_caller|visioner|host)$"
+check_forbidden "sdk" "^(sensor|llm_caller|visioner|okf|host)$"
 
 # Box 3 (services): isolated domain boxes — depend only on contracts & sdk
-for srv in sensor llm_caller visioner; do
-  check_forbidden "$srv" "^(sensor|llm_caller|visioner|host)$"
+for srv in sensor llm_caller visioner okf; do
+  check_forbidden "$srv" "^(sensor|llm_caller|visioner|okf|host)$"
 done
 
 echo "All cognitive box boundaries verified!"

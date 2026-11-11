@@ -24,4 +24,8 @@ $HOST_BIN --module visioner --instance default \
 $HOST_BIN --module visioner --instance default \
   --config '{"sensor":"screen","llm_caller":"agy","user_prompt":"Describe what you see in this image."}' &
 
+# OKF document storage: ONE writer per folder (it owns the clock that orders ids), any number of readers.
+$HOST_BIN --module okf_writer --instance default --config '{"root":"./okf-data"}' &
+$HOST_BIN --module okf_reader --instance default --config '{"root":"./okf-data"}' &
+
 wait

@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package okf.v1;
+
+// Mirrors the hand-written prost structs in crates/contracts/src/okf.rs (the Rust source of truth).
+// Used only for the web playground's descriptors. Keep both in sync.
+
+// Append-only document storage. Documents are written once and never changed.
+service OkfWriterService {
+  // Saves the documents in order and returns the id the server gave to each.
+  rpc Append(AppendRequest) returns (AppendResponse) {}
+}
+
+// Reads documents saved by OkfWriterService from the same folder.
+service OkfReaderService {
+  // One document by id. Unknown id -> not_found.
+  rpc Get(GetRequest) returns (GetResponse) {}
+  // Several documents by id. Unknown ids come back in missing_ids.
+  rpc BatchGet(BatchGetRequest) returns (BatchGetResponse) {}
+  // Documents with from_micros <= server time < to_micros, oldest first, one page at a time.
+  rpc Range(RangeRequest) returns (RangeResponse) {}
+  // The newest documents, oldest first.
+  rpc Tail(TailRequest) returns (TailResponse) {}
+}
+
+// id is the file path inside the storage folder: <stream>/<yyyy-mm-dd>/<HHMMSS.micros>, in UTC server time.
+// Example: screen-1.frames/2026-11-11/103045.123456
+message Document {
+  // Set by the server on Append. Leave empty when appending.
+  string id = 1;
+  // Named sequence this document belongs to. Letters, digits, '.', '-' and '_'.
+  string stream = 2;
+  // Groups the documents of one activity. Chosen by the producer.
+  string correlation_id = 3;
+  // Id of the document that caused this one. Optional.
+  string parent_id = 4;
+  // Who produced it: <module>/<instance>.
+  string source = 5;
+  // What it is, e.g. "frame" or "llm_call".
+  string kind = 6;
+  // Producer clock, microseconds since the Unix epoch. Informational only.
+  int64 local_time_micros = 7;
+  // Server clock at append, microseconds since the Unix epoch. Strictly increasing; this is the order.
+  int64 server_time_micros = 8;
+  // MIME type of data.
+  string content_type = 9;
+  // Payload, at most 256 KB. Keep larger files elsewhere and store a reference here.
+  bytes data = 10;
+}
+
+message DocumentRef {
+  string id = 1;
+  int64 server_time_micros = 2;
+}
+
+message AppendRequest {
+  repeated Document documents = 1;
+}
+
+// refs has one entry per appended document, in the same order.
+message AppendResponse {
+  repeated DocumentRef refs = 1;
+}
+
+message GetRequest {
+  string id = 1;
+}
+
+message GetResponse {
+  Document document = 1;
+}
+
+message BatchGetRequest {
+  repeated string ids = 1;
+}
+
+message BatchGetResponse {
+  repeated Document documents = 1;
+  repeated string missing_ids = 2;
+}
+
+message RangeRequest {
+  // Empty = all streams, merged by server time.
+  string stream = 1;
+  int64 from_micros = 2;
+  // 0 = no upper bound.
+  int64 to_micros = 3;
+  // 0 = 100. At most 1000. A page also stops at about 512 KB of data.
+  uint32 limit = 4;
+}
+
+message RangeResponse {
+  repeated Document documents = 1;
+  // Pass as from_micros to read the next page. 0 = this was the last page.
+  int64 next_from_micros = 2;
+}
+
+message TailRequest {
+  // Empty = all streams, merged by server time.
+  string stream = 1;
+  // 0 = 100. At most 1000. A page also stops at about 512 KB of data.
+  uint32 limit = 2;
+}
+
+message TailResponse {
+  repeated Document documents = 1;
+}

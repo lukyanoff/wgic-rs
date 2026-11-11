@@ -80,6 +80,14 @@ impl TestEnv {
     pub fn visioner_client(&self, instance: &str) -> NatsRpcClient {
         NatsRpcClient::new(self.nc.clone(), "visioner", instance)
     }
+
+    pub fn okf_writer_client(&self, instance: &str) -> NatsRpcClient {
+        NatsRpcClient::new(self.nc.clone(), "okf_writer", instance)
+    }
+
+    pub fn okf_reader_client(&self, instance: &str) -> NatsRpcClient {
+        NatsRpcClient::new(self.nc.clone(), "okf_reader", instance)
+    }
 }
 
 impl Drop for TestEnv {

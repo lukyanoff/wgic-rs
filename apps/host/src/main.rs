@@ -1,5 +1,5 @@
 use clap::Parser;
-use contracts::{LlmCallerEndpoint, SensorEndpoint, VisionerEndpoint};
+use contracts::{LlmCallerEndpoint, OkfReaderEndpoint, OkfWriterEndpoint, SensorEndpoint, VisionerEndpoint};
 use sdk::state::NatsKvStateStore;
 use sdk::{NatsLlmRegistry, NatsSensorRegistry, RawRpcEndpoint};
 use std::sync::Arc;
@@ -33,6 +33,20 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
+    let endpoint = build_endpoint(&args, nc.clone(), kv)?;
+
+    let _handles = sdk::transport::serve_endpoint(nc, &args.module, &args.instance, endpoint).await?;
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("shutting down {}", service_id);
+    Ok(())
+}
+
+/// Builds the one service this process runs (`--module`), with its dependencies injected.
+fn build_endpoint(
+    args: &Args,
+    nc: async_nats::Client,
+    kv: async_nats::jetstream::kv::Store,
+) -> anyhow::Result<Arc<dyn RawRpcEndpoint>> {
     let state_key = format!("{}.{}", args.module, args.instance);
 
     let endpoint: Arc<dyn RawRpcEndpoint> = match args.module.as_str() {
@@ -57,11 +71,19 @@ async fn main() -> anyhow::Result<()> {
                 cfg, state, sensors, llms,
             ))))
         }
+        "okf_writer" => {
+            let cfg: okf::Config = serde_json::from_str(&args.config)?;
+            let store = Arc::new(okf::FileStore::new(cfg.root));
+            let state = Arc::new(NatsKvStateStore::new(kv, state_key));
+            Arc::new(OkfWriterEndpoint(Arc::new(okf::OkfWriterHandler::new(store, state))))
+        }
+        "okf_reader" => {
+            let cfg: okf::Config = serde_json::from_str(&args.config)?;
+            let store = Arc::new(okf::FileStore::new(cfg.root));
+            let state = Arc::new(NatsKvStateStore::new(kv, state_key));
+            Arc::new(OkfReaderEndpoint(Arc::new(okf::OkfReaderHandler::new(store, state))))
+        }
         other => anyhow::bail!("unknown module: {other}"),
     };
-
-    let _handles = sdk::transport::serve_endpoint(nc, &args.module, &args.instance, endpoint).await?;
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("shutting down {}", service_id);
-    Ok(())
+    Ok(endpoint)
 }

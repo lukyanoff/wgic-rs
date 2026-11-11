@@ -2,3 +2,4 @@
 /node_modules
 /web/public/descriptors.binpb
 /.playwright-mcp
+/okf-data

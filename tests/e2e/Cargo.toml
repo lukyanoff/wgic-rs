@@ -10,10 +10,12 @@ async-nats = "0.39"
 axum = "0.8"
 contracts = { path = "../../crates/contracts" }
 llm_caller = { path = "../../services/llm_caller" }
+okf = { path = "../../services/okf" }
 sdk = { path = "../../crates/sdk" }
 sensor = { path = "../../services/sensor" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 visioner = { path = "../../services/visioner" }
