@@ -1,5 +1,5 @@
-use axum::{routing::post, Json, Router};
-use serde_json::{json, Value};
+use axum::{Json, Router, routing::post};
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 pub struct FakeOpenAi {
@@ -19,17 +19,14 @@ impl FakeOpenAi {
                     .map(|m| m["content"].to_string())
                     .unwrap_or_default();
 
-                Json(json!({
-                    "id": "chatcmpl-test",
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": format!("FakeOpenAI answered: {prompt_text}")
-                        }
-                    }]
-                }))
+                // Streamed like the real API: two SSE chunks, then [DONE].
+                let answer = format!("FakeOpenAI answered: {prompt_text}");
+                let (head, tail) = answer.split_at(answer.len() / 2);
+                let event = |text: &str| {
+                    format!("data: {}\n\n", json!({"model": model, "choices": [{"delta": {"content": text}}]}))
+                };
+                let body = format!("{}{}data: [DONE]\n\n", event(head), event(tail));
+                ([(axum::http::header::CONTENT_TYPE, "text/event-stream")], body)
             }),
         );
 
@@ -39,10 +36,7 @@ impl FakeOpenAi {
             let _ = axum::serve(listener, app).await;
         });
 
-        Self {
-            url: format!("http://{addr}/v1/chat/completions"),
-            handle,
-        }
+        Self { url: format!("http://{addr}/v1/chat/completions"), handle }
     }
 
     pub fn url(&self) -> String {

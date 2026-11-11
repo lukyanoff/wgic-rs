@@ -1,7 +1,7 @@
 use contracts::{ISensorService, SensorCaptureRequest, SensorEndpoint};
 use e2e::TestEnv;
 use sdk::ProgressSender;
-use sensor::{build_driver, Config, SensorHandler, SensorInstanceState, SensorKind};
+use sensor::{Config, SensorHandler, SensorInstanceState, SensorKind, build_driver};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -26,7 +26,7 @@ async fn sensor_captures_frame_streams_progress_and_updates_kv_state() -> anyhow
     while let Ok(msg) = rx.try_recv() {
         progress_steps.push(msg);
     }
-    assert!(progress_steps.iter().any(|s| s.contains("capturing from")));
+    assert!(progress_steps.iter().any(|e| matches!(e, sdk::ProgressEvent::Step(s) if s.contains("capturing from"))));
 
     let saved = state.get().await?;
     assert_eq!(saved.frames_captured, 1);

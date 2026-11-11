@@ -5,7 +5,7 @@
     "rpc"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "time": {
     "from": "now-15m",
@@ -16,7 +16,7 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Requests / s by method and transport",
+      "title": "Calls / s by instance and method",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -49,15 +49,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (rpc_service, rpc_method, rpc_transport) (rate(rpc_server_call_duration_seconds_count[1m]))",
-          "legendFormat": "{{rpc_method}} ({{rpc_transport}})"
+          "expr": "sum by (service_name, wgic_instance, rpc_method) (rate(rpc_server_call_duration_seconds_count[1m]))",
+          "legendFormat": "{{service_name}}/{{wgic_instance}} {{rpc_method}}"
         }
       ]
     },
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Latency p50 / p95 by method",
+      "title": "Errors / s by instance and code",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -67,6 +67,47 @@
         "w": 12,
         "x": 12,
         "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service_name, wgic_instance, rpc_response_status_code) (rate(rpc_server_call_duration_seconds_count{rpc_response_status_code!=\"ok\"}[1m]))",
+          "legendFormat": "{{service_name}}/{{wgic_instance}} {{rpc_response_status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Latency p50 / p95 by module",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
       },
       "fieldConfig": {
         "defaults": {
@@ -90,8 +131,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, rpc_method) (rate(rpc_server_call_duration_seconds_bucket[5m])))",
-          "legendFormat": "p50 {{rpc_method}}"
+          "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(rpc_server_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{service_name}}"
         },
         {
           "refId": "B",
@@ -99,56 +140,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, rpc_method) (rate(rpc_server_call_duration_seconds_bucket[5m])))",
-          "legendFormat": "p95 {{rpc_method}}"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "type": "timeseries",
-      "title": "Errors / s by method and code",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (rpc_method, rpc_response_status_code) (rate(rpc_server_call_duration_seconds_count{rpc_response_status_code!=\"ok\"}[1m]))",
-          "legendFormat": "{{rpc_method}} {{rpc_response_status_code}}"
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(rpc_server_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{service_name}}"
         }
       ]
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "greet: greetings and rejections / s",
+      "title": "Latency p95 by instance",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -161,7 +161,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "ops"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -181,17 +181,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (transport) (rate(greet_greetings_total[1m]))",
-          "legendFormat": "greetings ({{transport}})"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (reason) (rate(greet_rejected_total[1m]))",
-          "legendFormat": "rejected ({{reason}})"
+          "expr": "histogram_quantile(0.95, sum by (le, service_name, wgic_instance) (rate(rpc_server_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{service_name}}/{{wgic_instance}}"
         }
       ]
     }

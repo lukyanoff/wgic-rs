@@ -1,3 +1,6 @@
+//! Box 4: the composition root (≈ `Program.cs`). Parses the CLI, builds drivers/registries/state stores,
+//! injects them into the service handlers, and serves the result as a NATS micro service.
+
 use clap::Parser;
 use contracts::{LlmCallerEndpoint, SensorEndpoint, VisionerEndpoint};
 use sdk::state::NatsKvStateStore;
@@ -19,12 +22,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let service_id = format!("{}/{}", args.module, args.instance);
-    sdk::telemetry::init_telemetry(&service_id);
+    // Kept until `main` returns: dropping it flushes the last spans, logs and metrics.
+    let _telemetry = sdk::telemetry::init_telemetry(&args.module, &args.instance);
 
-    let nc = async_nats::connect(&args.nats_url).await?;
+    let nc = async_nats::ConnectOptions::new()
+        .name(format!("{}/{}", args.module, args.instance))
+        .connect(&args.nats_url)
+        .await?;
     let js = async_nats::jetstream::new(nc.clone());
-
     let kv = js
         .create_key_value(async_nats::jetstream::kv::Config {
             bucket: "wgic_instance_state".into(),
@@ -32,7 +37,6 @@ async fn main() -> anyhow::Result<()> {
             ..Default::default()
         })
         .await?;
-
     let state_key = format!("{}.{}", args.module, args.instance);
 
     let endpoint: Arc<dyn RawRpcEndpoint> = match args.module.as_str() {
@@ -51,17 +55,15 @@ async fn main() -> anyhow::Result<()> {
         "visioner" => {
             let cfg: visioner::Config = serde_json::from_str(&args.config)?;
             let state = Arc::new(NatsKvStateStore::new(kv, state_key));
-            let sensors = Arc::new(NatsSensorRegistry::new(nc.clone()));
-            let llms = Arc::new(NatsLlmRegistry::new(nc.clone()));
-            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(
-                cfg, state, sensors, llms,
-            ))))
+            let sensors = Arc::new(NatsSensorRegistry::new(nc.clone(), cfg.sensor_timeout()));
+            let llms = Arc::new(NatsLlmRegistry::new(nc.clone(), cfg.llm_timeout()));
+            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(cfg, state, sensors, llms))))
         }
         other => anyhow::bail!("unknown module: {other}"),
     };
 
-    let _handles = sdk::transport::serve_endpoint(nc, &args.module, &args.instance, endpoint).await?;
+    let _handles = sdk::serve_endpoint(nc, &args.module, &args.instance, endpoint).await?;
     tokio::signal::ctrl_c().await?;
-    tracing::info!("shutting down {}", service_id);
+    tracing::info!(module = %args.module, instance = %args.instance, "shutting down");
     Ok(())
 }

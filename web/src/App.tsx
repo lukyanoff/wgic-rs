@@ -1,148 +1,106 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import './App.css'
-import { callNatsRpc, fetchAllInstanceStates } from './rpcClient'
-import type { MethodEntry } from './schema'
-import { buildTemplate } from './template'
+import type { InstanceRow } from './micro'
+import { RequestPanel } from './RequestPanel'
 import { ResultPanel } from './ResultPanel'
+import type { MethodEntry } from './schema'
+import { ServicesPanel } from './ServicesPanel'
+import { buildTemplate } from './template'
 import { TracePanel } from './TracePanel'
+import { useMesh } from './useMesh'
+import { useRpcCall } from './useRpcCall'
 
 const DEFAULT_NATS_WS = 'ws://localhost:9222'
 
-const PRESET_INSTANCES: Record<string, string[]> = {
-  'sensor.v1.SensorService': ['screen', 'cam', 'usbcam', 'fake'],
-  'llm_caller.v1.LlmCallerService': ['agy', 'claude', 'openai'],
-  'visioner.v1.VisionerService': ['default'],
-}
-
+/** `visioner.v1.VisionerService` → `visioner` (the proto package's first part is the module name). */
 function moduleFromService(typeName: string): string {
   return typeName.split('.')[0] || 'unknown'
+}
+
+interface ConsoleHeaderProps {
+  natsUrl: string
+  onNatsUrl: (url: string) => void
+  onRefresh: () => void
+}
+
+function ConsoleHeader({ natsUrl, onNatsUrl, onRefresh }: ConsoleHeaderProps) {
+  return (
+    <header className="console-header">
+      <h1>WGIC Omni Console (NATS Mesh)</h1>
+      <div className="conn-bar">
+        <label>NATS WS:</label>
+        <input value={natsUrl} onChange={(e) => onNatsUrl(e.target.value)} />
+        <button onClick={onRefresh}>Refresh</button>
+      </div>
+    </header>
+  )
 }
 
 export function App({ methods }: { methods: MethodEntry[] }) {
   const [natsUrl, setNatsUrl] = useState(DEFAULT_NATS_WS)
   const [selectedIdx, setSelectedIdx] = useState(0)
+  const [typedInstance, setTypedInstance] = useState('')
+  const [jsonInput, setJsonInput] = useState(() => buildTemplate(methods[0].method.input))
+  const [timeoutSecs, setTimeoutSecs] = useState('150')
+  const mesh = useMesh(natsUrl)
+  const call = useRpcCall()
+
   const entry = methods[selectedIdx]
   const moduleName = moduleFromService(entry.service.typeName)
+  const instances = mesh.rows.filter((r) => r.module === moduleName).map((r) => r.instance)
+  // Until something is typed or picked, target the first running instance.
+  const instance = typedInstance || instances[0] || 'default'
 
-  const presets = PRESET_INSTANCES[entry.service.typeName] ?? ['default']
-  const [instance, setInstance] = useState(presets[0])
-  const [jsonInput, setJsonInput] = useState(() => buildTemplate(entry.method.input))
-
-  const [progressSteps, setProgressSteps] = useState<string[]>([])
-  const [responseJson, setResponseJson] = useState<string>('')
-  const [errorText, setErrorText] = useState<string>('')
-  const [traceId, setTraceId] = useState<string>('')
-  const [durationMs, setDurationMs] = useState<number | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [kvStates, setKvStates] = useState<Record<string, unknown>>({})
-
-  useEffect(() => {
-    const nextPresets = PRESET_INSTANCES[entry.service.typeName] ?? ['default']
-    setInstance(nextPresets[0])
-    setJsonInput(buildTemplate(entry.method.input))
-    setProgressSteps([])
-    setResponseJson('')
-    setErrorText('')
-  }, [selectedIdx, entry])
-
-  const refreshKvState = async () => {
-    const states = await fetchAllInstanceStates(natsUrl)
-    setKvStates(states)
+  const selectMethod = (idx: number) => {
+    setSelectedIdx(idx)
+    setTypedInstance('')
+    setJsonInput(buildTemplate(methods[idx].method.input))
+    call.reset()
   }
 
-  useEffect(() => {
-    refreshKvState()
-  }, [natsUrl])
+  const pickInstance = (row: InstanceRow) => {
+    const idx = methods.findIndex((m) => moduleFromService(m.service.typeName) === row.module)
+    if (idx >= 0 && idx !== selectedIdx) selectMethod(idx)
+    setTypedInstance(row.instance)
+  }
 
-  const handleSend = async () => {
-    setLoading(true)
-    setProgressSteps([])
-    setResponseJson('')
-    setErrorText('')
-    setDurationMs(null)
-
-    try {
-      const res = await callNatsRpc({
-        natsUrl,
-        module: moduleName,
-        instance,
-        entry,
-        jsonInput,
-        onProgress: (step) => setProgressSteps((prev) => [...prev, step]),
-      })
-      setResponseJson(res.responseJson)
-      setTraceId(res.traceId)
-      setDurationMs(res.durationMs)
-      await refreshKvState()
-    } catch (err) {
-      setErrorText(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
+  const send = async () => {
+    await call.send({
+      natsUrl,
+      module: moduleName,
+      instance,
+      entry,
+      jsonInput,
+      timeoutMs: Number(timeoutSecs) * 1000 || 150_000,
+    })
+    await mesh.refresh()
   }
 
   return (
     <div className="console-container">
-      <header className="console-header">
-        <h1>WGIC Omni Console (NATS Mesh)</h1>
-        <div className="conn-bar">
-          <label>NATS WS:</label>
-          <input value={natsUrl} onChange={(e) => setNatsUrl(e.target.value)} />
-          <button onClick={refreshKvState}>Refresh KV State</button>
-        </div>
-      </header>
+      <ConsoleHeader natsUrl={natsUrl} onNatsUrl={setNatsUrl} onRefresh={() => void mesh.refresh()} />
 
       <div className="console-grid">
-        <section className="panel">
-          <h2>1. Target & Method</h2>
-          <div className="field-row">
-            <label>RPC Method:</label>
-            <select value={selectedIdx} onChange={(e) => setSelectedIdx(Number(e.target.value))}>
-              {methods.map((m, idx) => (
-                <option key={m.label} value={idx}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field-row">
-            <label>Module / Instance:</label>
-            <div className="instance-selector">
-              <code>{moduleName}/</code>
-              <input value={instance} onChange={(e) => setInstance(e.target.value)} placeholder="instance_id" />
-              {presets.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className={p === instance ? 'chip active' : 'chip'}
-                  onClick={() => setInstance(p)}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <h3>Request Payload (JSON)</h3>
-          <textarea rows={10} value={jsonInput} onChange={(e) => setJsonInput(e.target.value)} />
-
-          <button className="send-btn" disabled={loading} onClick={handleSend}>
-            {loading ? 'Streaming RPC...' : `Invoke rpc.${moduleName}.${instance}...`}
-          </button>
-        </section>
-
-        <ResultPanel
-          loading={loading}
-          durationMs={durationMs}
-          progressSteps={progressSteps}
-          errorText={errorText}
-          responseJson={responseJson}
-          kvStates={kvStates}
+        <RequestPanel
+          methods={methods}
+          selectedIdx={selectedIdx}
+          onSelectMethod={selectMethod}
+          moduleName={moduleName}
+          instances={instances}
+          instance={instance}
+          onInstance={setTypedInstance}
+          jsonInput={jsonInput}
+          onJsonInput={setJsonInput}
+          timeoutSecs={timeoutSecs}
+          onTimeoutSecs={setTimeoutSecs}
+          loading={call.view.loading}
+          onSend={() => void send()}
         />
+        <ResultPanel call={call.view} kvStates={mesh.kvStates} />
       </div>
 
-      {traceId && <TracePanel traceId={traceId} />}
+      {call.view.traceId && <TracePanel key={call.view.traceId} traceId={call.view.traceId} />}
+      <ServicesPanel rows={mesh.rows} onPick={pickInstance} />
     </div>
   )
 }

@@ -6,6 +6,10 @@ cargo build -p host
 
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 
+# Traces → Jaeger (:16686), metrics → Prometheus (:9090) / Grafana (:3000), logs → collector.
+# Needs `podman compose up -d`; unset it to run without export.
+export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT-http://127.0.0.1:4318}"
+
 # Sensors
 $HOST_BIN --module sensor --instance fake --config '{"kind":"fake"}' &
 $HOST_BIN --module sensor --instance screen --config '{"kind":"screen","index":0}' &
@@ -19,6 +23,7 @@ $HOST_BIN --module llm_caller --instance claude --config '{"kind":"claude"}' &
 
 # Visioner (Orchestrator) — 2 HA replicas sharing state `visioner.default`.
 # Defaults: screen → agy. A request can override sensor (screen, cam, usbcam, fake) and llm_caller (agy, claude).
+# Timeouts (optional): "sensor_timeout_secs" (default 15) and "llm_timeout_secs" (default 120).
 $HOST_BIN --module visioner --instance default \
   --config '{"sensor":"screen","llm_caller":"agy","user_prompt":"Describe what you see in this image."}' &
 $HOST_BIN --module visioner --instance default \

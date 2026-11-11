@@ -317,14 +317,46 @@ pre {
   color: var(--bad);
 }
 
+/* Answer text while it streams in */
+.answer-box {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  background: var(--sunken);
+}
+
+.answer-box.streaming::after {
+  content: '▍';
+  color: var(--accent);
+  animation: blink 1s steps(2) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.step-at {
+  color: var(--dim);
+}
+
+.timeout-row input {
+  width: 120px;
+}
+
 /* ========================================================================
-   Trace footer
+   Trace footer (spans from Jaeger)
    ======================================================================== */
 .trace-panel {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
+  flex-direction: column;
+  gap: 4px;
   margin-top: 16px;
   padding: 10px 16px;
   background: var(--surface);
@@ -333,6 +365,104 @@ pre {
   color: var(--dim);
 }
 
+.trace-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
 .trace-panel a {
   color: var(--accent);
+}
+
+.trace-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 70px;
+  gap: 10px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.trace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.trace-bar-track {
+  position: relative;
+  height: 10px;
+  background: var(--sunken);
+  border-radius: 3px;
+}
+
+.trace-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.trace-row.error .trace-bar {
+  background: var(--bad);
+}
+
+.trace-row.error .trace-name {
+  color: var(--bad);
+}
+
+.trace-ms {
+  text-align: right;
+}
+
+/* ========================================================================
+   Services (NATS micro)
+   ======================================================================== */
+.services-panel {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.services-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.services-table th,
+.services-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.services-table th {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.services-table tbody tr {
+  cursor: pointer;
+}
+
+.services-table tbody tr:hover {
+  background: var(--active);
+}
+
+.services-table .bad {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.services-table .last-error {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
 }

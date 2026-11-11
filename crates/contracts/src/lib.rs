@@ -15,6 +15,15 @@ pub struct RpcError {
     pub message: String,
 }
 
+/// Every error code the wire knows, with its NATS micro status (`Nats-Service-Error-Code`, HTTP-like).
+const CODES: [(&str, u16); 5] = [
+    ("invalid_argument", 400),
+    ("not_found", 404),
+    ("internal", 500),
+    ("unavailable", 503),
+    ("deadline_exceeded", 504),
+];
+
 impl RpcError {
     pub fn internal(msg: impl Into<String>) -> Self {
         Self { code: "internal", message: msg.into() }
@@ -25,26 +34,78 @@ impl RpcError {
     pub fn not_found(msg: impl Into<String>) -> Self {
         Self { code: "not_found", message: msg.into() }
     }
+    /// Nothing answered: no instance is listening, or it is down.
+    pub fn unavailable(msg: impl Into<String>) -> Self {
+        Self { code: "unavailable", message: msg.into() }
+    }
+    /// The call ran out of time (client deadline or server cap).
+    pub fn deadline_exceeded(msg: impl Into<String>) -> Self {
+        Self { code: "deadline_exceeded", message: msg.into() }
+    }
+
+    /// `"deadline_exceeded"` → that code; an unknown code becomes `internal` (≈ C# `Enum.TryParse` with a fallback).
+    pub fn from_code(code: &str, msg: impl Into<String>) -> Self {
+        let code = CODES.iter().find(|(c, _)| *c == code).map_or("internal", |(c, _)| *c);
+        Self { code, message: msg.into() }
+    }
+
+    /// HTTP-like status for `Nats-Service-Error-Code` (500 for anything unknown).
+    pub fn status(&self) -> u16 {
+        CODES.iter().find(|(c, _)| *c == self.code).map_or(500, |(_, s)| *s)
+    }
 }
 
-/// Passed into every RPC handler method. Streams real-time progress updates if subscribed.
+// ============================================================================
+// 1b. Progress (≈ C# `IProgress<T>`): steps and streamed answer text
+// ============================================================================
+
+/// One progress event of a running call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgressEvent {
+    /// A stage, e.g. `"capturing from screen"` or `"[agy] thinking"`.
+    Step(String),
+    /// A piece of the answer while it is being written (the caller appends them).
+    Text(String),
+}
+
+/// Passed into every RPC handler method. Streams real-time progress to the caller, if anyone listens.
 #[derive(Clone, Default)]
 pub struct ProgressSender {
-    tx: Option<mpsc::UnboundedSender<String>>,
+    tx: Option<mpsc::UnboundedSender<ProgressEvent>>,
+    /// Prepended to steps as `[prefix] `, so a caller can tell its sources apart.
+    prefix: Option<String>,
 }
 
 impl ProgressSender {
-    pub fn new(tx: mpsc::UnboundedSender<String>) -> Self {
-        Self { tx: Some(tx) }
+    pub fn new(tx: mpsc::UnboundedSender<ProgressEvent>) -> Self {
+        Self { tx: Some(tx), prefix: None }
     }
 
     pub fn noop() -> Self {
-        Self { tx: None }
+        Self::default()
     }
 
-    pub fn report(&self, message: impl Into<String>) {
+    /// A copy whose steps read `[label] step` (text deltas stay unchanged).
+    pub fn prefixed(&self, label: &str) -> Self {
+        Self { tx: self.tx.clone(), prefix: Some(label.to_string()) }
+    }
+
+    pub fn report(&self, step: impl Into<String>) {
+        let step = step.into();
+        let step = match &self.prefix {
+            Some(prefix) => format!("[{prefix}] {step}"),
+            None => step,
+        };
+        self.send(ProgressEvent::Step(step));
+    }
+
+    pub fn text(&self, delta: impl Into<String>) {
+        self.send(ProgressEvent::Text(delta.into()));
+    }
+
+    fn send(&self, event: ProgressEvent) {
         if let Some(tx) = &self.tx {
-            let _ = tx.send(message.into());
+            let _ = tx.send(event);
         }
     }
 }
@@ -79,12 +140,7 @@ impl<T: ?Sized + Send + Sync> ClientRegistry<T> for MapRegistry<T> {
 pub trait RawRpcEndpoint: Send + Sync + 'static {
     fn service_name(&self) -> &'static str;
     fn methods(&self) -> &'static [&'static str];
-    async fn dispatch(
-        &self,
-        method: &str,
-        payload: &[u8],
-        progress: ProgressSender,
-    ) -> Result<Vec<u8>, RpcError>;
+    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError>;
 }
 
 // ============================================================================
@@ -143,11 +199,7 @@ pub struct LlmCallResponse {
 
 #[async_trait]
 pub trait ILlmCallerService: Send + Sync + 'static {
-    async fn call(
-        &self,
-        req: LlmCallRequest,
-        progress: ProgressSender,
-    ) -> Result<LlmCallResponse, RpcError>;
+    async fn call(&self, req: LlmCallRequest, progress: ProgressSender) -> Result<LlmCallResponse, RpcError>;
 }
 
 // --- Visioner Contract ---
@@ -192,19 +244,17 @@ pub struct SensorEndpoint<T: ISensorService>(pub Arc<T>);
 
 #[async_trait]
 impl<T: ISensorService> RawRpcEndpoint for SensorEndpoint<T> {
-    fn service_name(&self) -> &'static str { "sensor.v1.SensorService" }
-    fn methods(&self) -> &'static [&'static str] { &["Capture"] }
+    fn service_name(&self) -> &'static str {
+        "sensor.v1.SensorService"
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        &["Capture"]
+    }
 
-    async fn dispatch(
-        &self,
-        method: &str,
-        payload: &[u8],
-        progress: ProgressSender,
-    ) -> Result<Vec<u8>, RpcError> {
+    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError> {
         match method {
             "Capture" => {
-                let req = SensorCaptureRequest::decode(payload)
-                    .map_err(|e| RpcError::invalid_arg(e.to_string()))?;
+                let req = SensorCaptureRequest::decode(payload).map_err(|e| RpcError::invalid_arg(e.to_string()))?;
                 let res = self.0.capture(req, progress).await?;
                 Ok(res.encode_to_vec())
             }
@@ -217,19 +267,17 @@ pub struct LlmCallerEndpoint<T: ILlmCallerService>(pub Arc<T>);
 
 #[async_trait]
 impl<T: ILlmCallerService> RawRpcEndpoint for LlmCallerEndpoint<T> {
-    fn service_name(&self) -> &'static str { "llm_caller.v1.LlmCallerService" }
-    fn methods(&self) -> &'static [&'static str] { &["Call"] }
+    fn service_name(&self) -> &'static str {
+        "llm_caller.v1.LlmCallerService"
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        &["Call"]
+    }
 
-    async fn dispatch(
-        &self,
-        method: &str,
-        payload: &[u8],
-        progress: ProgressSender,
-    ) -> Result<Vec<u8>, RpcError> {
+    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError> {
         match method {
             "Call" => {
-                let req = LlmCallRequest::decode(payload)
-                    .map_err(|e| RpcError::invalid_arg(e.to_string()))?;
+                let req = LlmCallRequest::decode(payload).map_err(|e| RpcError::invalid_arg(e.to_string()))?;
                 let res = self.0.call(req, progress).await?;
                 Ok(res.encode_to_vec())
             }
@@ -242,19 +290,17 @@ pub struct VisionerEndpoint<T: IVisionerService>(pub Arc<T>);
 
 #[async_trait]
 impl<T: IVisionerService> RawRpcEndpoint for VisionerEndpoint<T> {
-    fn service_name(&self) -> &'static str { "visioner.v1.VisionerService" }
-    fn methods(&self) -> &'static [&'static str] { &["Capture"] }
+    fn service_name(&self) -> &'static str {
+        "visioner.v1.VisionerService"
+    }
+    fn methods(&self) -> &'static [&'static str] {
+        &["Capture"]
+    }
 
-    async fn dispatch(
-        &self,
-        method: &str,
-        payload: &[u8],
-        progress: ProgressSender,
-    ) -> Result<Vec<u8>, RpcError> {
+    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError> {
         match method {
             "Capture" => {
-                let req = VisionCaptureRequest::decode(payload)
-                    .map_err(|e| RpcError::invalid_arg(e.to_string()))?;
+                let req = VisionCaptureRequest::decode(payload).map_err(|e| RpcError::invalid_arg(e.to_string()))?;
                 let res = self.0.capture(req, progress).await?;
                 Ok(res.encode_to_vec())
             }
@@ -262,3 +308,7 @@ impl<T: IVisionerService> RawRpcEndpoint for VisionerEndpoint<T> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod lib_tests;

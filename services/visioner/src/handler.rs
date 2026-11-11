@@ -1,8 +1,8 @@
 use crate::config::Config;
 use async_trait::async_trait;
 use contracts::{
-    ILlmCallerService, ISensorService, IVisionerService, ImageInput, LlmCallRequest,
-    SensorCaptureRequest, VisionCaptureRequest, VisionCaptureResponse,
+    ILlmCallerService, ISensorService, IVisionerService, ImageInput, LlmCallRequest, SensorCaptureRequest,
+    VisionCaptureRequest, VisionCaptureResponse,
 };
 use sdk::state::IStateStore;
 use sdk::{ClientRegistry, ProgressSender, RpcError};
@@ -66,30 +66,21 @@ impl IVisionerService for VisionerHandler {
         let sensor = self.sensors.get(sensor_target)?;
         let llm = self.llms.get(llm_target)?;
 
-        progress.report(format!("capturing image from {sensor_target}"));
-        let snap = sensor
-            .capture(SensorCaptureRequest {}, progress.clone())
-            .await?;
-
+        // Each source's steps arrive labelled, e.g. `[screen] capturing from screen`, `[agy] thinking`.
+        progress.report(format!("capturing from {sensor_target}"));
+        let snap = sensor.capture(SensorCaptureRequest {}, progress.prefixed(sensor_target)).await?;
         if snap.data.is_empty() {
             return Err(RpcError::internal("sensor returned empty image"));
         }
 
-        progress.report(format!("calling LLM {llm_target}"));
-        let llm_reply = llm
-            .call(
-                LlmCallRequest {
-                    system_prompt: pick(req.system_prompt.as_deref(), &self.cfg.system_prompt).to_string(),
-                    text_prompt: pick(req.text_prompt.as_deref(), &self.cfg.text_prompt).to_string(),
-                    user_prompt: user_prompt.to_string(),
-                    images: vec![ImageInput {
-                        data: snap.data,
-                        mime_type: snap.mime_type.clone(),
-                    }],
-                },
-                progress.clone(),
-            )
-            .await?;
+        progress.report(format!("asking {llm_target} ({} KB {})", snap.data.len() / 1024, snap.mime_type));
+        let request = LlmCallRequest {
+            system_prompt: pick(req.system_prompt.as_deref(), &self.cfg.system_prompt).to_string(),
+            text_prompt: pick(req.text_prompt.as_deref(), &self.cfg.text_prompt).to_string(),
+            user_prompt: user_prompt.to_string(),
+            images: vec![ImageInput { data: snap.data, mime_type: snap.mime_type.clone() }],
+        };
+        let llm_reply = llm.call(request, progress.prefixed(llm_target)).await?;
 
         let model_used = llm_reply.model.clone();
         self.state
@@ -108,11 +99,7 @@ impl IVisionerService for VisionerHandler {
             "visioner pipeline completed"
         );
 
-        Ok(VisionCaptureResponse {
-            text: llm_reply.text,
-            model: llm_reply.model,
-            sensor_mime_type: snap.mime_type,
-        })
+        Ok(VisionCaptureResponse { text: llm_reply.text, model: llm_reply.model, sensor_mime_type: snap.mime_type })
     }
 }
 

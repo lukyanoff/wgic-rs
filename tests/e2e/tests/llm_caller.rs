@@ -1,7 +1,7 @@
 use contracts::{ILlmCallerService, ImageInput, LlmCallRequest, LlmCallerEndpoint};
-use e2e::fake_openai::FakeOpenAi;
 use e2e::TestEnv;
-use llm_caller::{build_driver, Config, DriverKind, LlmCallerHandler, LlmInstanceState};
+use e2e::fake_openai::FakeOpenAi;
+use llm_caller::{Config, DriverKind, LlmCallerHandler, LlmInstanceState, build_driver};
 use sdk::ProgressSender;
 use std::sync::Arc;
 
@@ -32,10 +32,7 @@ async fn llm_caller_invokes_http_driver_and_updates_cas_state() -> anyhow::Resul
                 system_prompt: "You are helpful".into(),
                 text_prompt: "Context".into(),
                 user_prompt: "What is in this picture?".into(),
-                images: vec![ImageInput {
-                    data: vec![1, 2, 3, 4],
-                    mime_type: "image/png".into(),
-                }],
+                images: vec![ImageInput { data: vec![1, 2, 3, 4], mime_type: "image/png".into() }],
             },
             ProgressSender::noop(),
         )
@@ -47,5 +44,25 @@ async fn llm_caller_invokes_http_driver_and_updates_cas_state() -> anyhow::Resul
     let saved = state.get().await?;
     assert_eq!(saved.total_calls, 1);
     assert_eq!(saved.last_model, "gpt-4o-mini-test");
+    Ok(())
+}
+
+#[tokio::test]
+async fn error_codes_cross_nats_as_micro_error_replies() -> anyhow::Result<()> {
+    let mut env = TestEnv::connect().await?;
+    let inst = env.instance_name("errors");
+    let cfg = Config { kind: DriverKind::Http, endpoint: "http://127.0.0.1:9/never".into(), ..Default::default() };
+    let state = env.state_store::<LlmInstanceState>("llm_caller", &inst);
+    let handler = Arc::new(LlmCallerHandler::new(build_driver(cfg)?, state));
+    env.mount_endpoint("llm_caller", &inst, Arc::new(LlmCallerEndpoint(handler))).await?;
+
+    // Handler error → `Nats-Service-Error` header → the same code on the client.
+    let empty = LlmCallRequest { user_prompt: "  ".into(), ..Default::default() };
+    let err = env.llm_client(&inst).call(empty, ProgressSender::noop()).await.unwrap_err();
+    assert_eq!(err.code, "invalid_argument");
+
+    // Nobody serves this instance → NATS "no responders" → `unavailable`, without waiting for the timeout.
+    let err = env.llm_client("nobody-here").call(LlmCallRequest::default(), ProgressSender::noop()).await.unwrap_err();
+    assert_eq!(err.code, "unavailable");
     Ok(())
 }

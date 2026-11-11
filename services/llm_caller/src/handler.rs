@@ -31,7 +31,7 @@ impl ILlmCallerService for LlmCallerHandler {
             return Err(RpcError::invalid_arg("user_prompt must not be empty"));
         }
 
-        progress.report(format!("invoking LLM ({} images)", req.images.len()));
+        progress.report(format!("prompt sent ({} images)", req.images.len()));
 
         let args = PromptArgs {
             system_prompt: req.system_prompt,
@@ -40,7 +40,7 @@ impl ILlmCallerService for LlmCallerHandler {
             images: req.images.into_iter().map(|i| ImageArg { data: i.data, mime_type: i.mime_type }).collect(),
         };
 
-        let out = self.driver.call(args).await?;
+        let out = self.driver.call(args, progress.clone()).await?;
 
         let model_used = out.model.clone();
         self.state
@@ -51,7 +51,6 @@ impl ILlmCallerService for LlmCallerHandler {
             .await
             .map_err(|e| RpcError::internal(format!("llm state CAS failed: {e}")))?;
 
-        progress.report("response received");
         tracing::info!(model = %out.model, chars = out.text.len(), "LLM call succeeded");
 
         Ok(LlmCallResponse { text: out.text, model: out.model })

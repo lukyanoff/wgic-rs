@@ -1,9 +1,6 @@
-use contracts::{
-    LlmCallerEndpoint, SensorEndpoint, VisionCaptureRequest, VisionCaptureResponse,
-    VisionerEndpoint,
-};
-use e2e::fake_openai::FakeOpenAi;
+use contracts::{LlmCallerEndpoint, SensorEndpoint, VisionCaptureRequest, VisionCaptureResponse, VisionerEndpoint};
 use e2e::TestEnv;
+use e2e::fake_openai::FakeOpenAi;
 use llm_caller::{LlmCallerHandler, LlmInstanceState};
 use sdk::{NatsLlmRegistry, NatsSensorRegistry, ProgressSender};
 use sensor::{SensorHandler, SensorInstanceState, SensorKind};
@@ -20,10 +17,7 @@ async fn visioner_full_pipeline_with_ha_replicas_and_shared_cas_state() -> anyho
     let visioner_inst = env.instance_name("orch");
 
     let sensor_state = env.state_store::<SensorInstanceState>("sensor", &sensor_inst);
-    let sensor_driver = sensor::build_driver(&sensor::Config {
-        kind: SensorKind::Fake,
-        index: 0,
-    });
+    let sensor_driver = sensor::build_driver(&sensor::Config { kind: SensorKind::Fake, index: 0 });
     env.mount_endpoint(
         "sensor",
         &sensor_inst,
@@ -53,17 +47,17 @@ async fn visioner_full_pipeline_with_ha_replicas_and_shared_cas_state() -> anyho
         system_prompt: "System".into(),
         text_prompt: "Text".into(),
         user_prompt: "Describe desk".into(),
+        ..Default::default()
     };
 
     for _replica in 0..2 {
         let handler = Arc::new(VisionerHandler::new(
             v_cfg.clone(),
             shared_visioner_state.clone(),
-            Arc::new(NatsSensorRegistry::new(env.nc.clone())),
-            Arc::new(NatsLlmRegistry::new(env.nc.clone())),
+            Arc::new(NatsSensorRegistry::new(env.nc.clone(), e2e::CALL_TIMEOUT)),
+            Arc::new(NatsLlmRegistry::new(env.nc.clone(), e2e::CALL_TIMEOUT)),
         ));
-        env.mount_endpoint("visioner", &visioner_inst, Arc::new(VisionerEndpoint(handler)))
-            .await?;
+        env.mount_endpoint("visioner", &visioner_inst, Arc::new(VisionerEndpoint(handler))).await?;
     }
 
     let client = env.visioner_client(&visioner_inst);

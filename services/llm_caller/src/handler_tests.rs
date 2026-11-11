@@ -5,7 +5,7 @@ use sdk::state::InMemoryStateStore;
 struct MockDriver;
 #[async_trait]
 impl Driver for MockDriver {
-    async fn call(&self, args: PromptArgs) -> Result<LlmOutput, RpcError> {
+    async fn call(&self, args: PromptArgs, _progress: ProgressSender) -> Result<LlmOutput, RpcError> {
         Ok(LlmOutput { text: format!("echo: {}", args.user_prompt), model: "mock-model".into() })
     }
 }
