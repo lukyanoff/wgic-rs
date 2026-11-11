@@ -52,5 +52,8 @@ pub fn images_note(names: &[String]) -> String {
     if names.is_empty() {
         return String::new();
     }
-    format!("\n\nThe attached images are the files {} in the current folder. Open only these files, and do not mention file names or paths in your answer.", names.join(", "))
+    format!(
+        "\n\nThe attached images are the files {} in the current folder. Open only these files, and do not mention file names or paths in your answer.",
+        names.join(", ")
+    )
 }

@@ -1,8 +1,8 @@
 use crate::drivers::{CaptureOutput, Driver, encode_frame};
 use async_trait::async_trait;
+use nokhwa::Camera;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
-use nokhwa::Camera;
 use sdk::RpcError;
 
 /// Frames read per capture; only the last is kept (see `capture`).
@@ -30,8 +30,7 @@ impl Driver for CameraDriver {
             let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
             let mut cam = Camera::new(CameraIndex::Index(idx), format)
                 .map_err(|e| RpcError::internal(format!("camera init failed: {e}")))?;
-            cam.open_stream()
-                .map_err(|e| RpcError::internal(format!("camera open_stream failed: {e}")))?;
+            cam.open_stream().map_err(|e| RpcError::internal(format!("camera open_stream failed: {e}")))?;
             // The first frames after opening are often dark while auto-exposure settles; keep the last one.
             let mut frame = None;
             for _ in 0..WARMUP_FRAMES {

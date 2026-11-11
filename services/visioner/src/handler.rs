@@ -1,8 +1,8 @@
 use crate::config::Config;
 use async_trait::async_trait;
 use contracts::{
-    ILlmCallerService, ISensorService, IVisionerService, ImageInput, LlmCallRequest,
-    SensorCaptureRequest, VisionCaptureRequest, VisionCaptureResponse,
+    ILlmCallerService, ISensorService, IVisionerService, ImageInput, LlmCallRequest, SensorCaptureRequest,
+    VisionCaptureRequest, VisionCaptureResponse,
 };
 use sdk::state::IStateStore;
 use sdk::{ClientRegistry, ProgressSender, RpcError};
@@ -67,9 +67,7 @@ impl IVisionerService for VisionerHandler {
         let llm = self.llms.get(llm_target)?;
 
         progress.report(format!("capturing image from {sensor_target}"));
-        let snap = sensor
-            .capture(SensorCaptureRequest {}, progress.clone())
-            .await?;
+        let snap = sensor.capture(SensorCaptureRequest {}, progress.clone()).await?;
 
         if snap.data.is_empty() {
             return Err(RpcError::internal("sensor returned empty image"));
@@ -82,10 +80,7 @@ impl IVisionerService for VisionerHandler {
                     system_prompt: pick(req.system_prompt.as_deref(), &self.cfg.system_prompt).to_string(),
                     text_prompt: pick(req.text_prompt.as_deref(), &self.cfg.text_prompt).to_string(),
                     user_prompt: user_prompt.to_string(),
-                    images: vec![ImageInput {
-                        data: snap.data,
-                        mime_type: snap.mime_type.clone(),
-                    }],
+                    images: vec![ImageInput { data: snap.data, mime_type: snap.mime_type.clone() }],
                 },
                 progress.clone(),
             )
@@ -108,11 +103,7 @@ impl IVisionerService for VisionerHandler {
             "visioner pipeline completed"
         );
 
-        Ok(VisionCaptureResponse {
-            text: llm_reply.text,
-            model: llm_reply.model,
-            sensor_mime_type: snap.mime_type,
-        })
+        Ok(VisionCaptureResponse { text: llm_reply.text, model: llm_reply.model, sensor_mime_type: snap.mime_type })
     }
 }
 

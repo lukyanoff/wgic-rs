@@ -1,7 +1,7 @@
 use contracts::{ISensorService, SensorCaptureRequest, SensorEndpoint};
 use e2e::TestEnv;
 use sdk::ProgressSender;
-use sensor::{build_driver, Config, SensorHandler, SensorInstanceState, SensorKind};
+use sensor::{Config, SensorHandler, SensorInstanceState, SensorKind, build_driver};
 use std::sync::Arc;
 
 #[tokio::test]
