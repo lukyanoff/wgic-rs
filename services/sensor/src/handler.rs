@@ -19,7 +19,10 @@ pub struct SensorHandler {
 }
 
 impl SensorHandler {
-    pub fn new(driver: Arc<dyn Driver>, state: Arc<dyn IStateStore<SensorInstanceState>>) -> Self {
+    pub fn new(
+        driver: Arc<dyn Driver>,
+        state: Arc<dyn IStateStore<SensorInstanceState>>,
+    ) -> Self {
         Self { driver, state }
     }
 }
@@ -50,7 +53,10 @@ impl ISensorService for SensorHandler {
         progress.report(format!("captured {size} bytes"));
         tracing::info!(bytes = size, mime = %out.mime_type, "sensor frame captured");
 
-        Ok(SensorCaptureResponse { data: out.data, mime_type: out.mime_type })
+        Ok(SensorCaptureResponse {
+            data: out.data,
+            mime_type: out.mime_type,
+        })
     }
 }
 

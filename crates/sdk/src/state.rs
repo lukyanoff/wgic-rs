@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Mutex;
 
 pub type StateMutator<S> = Box<dyn Fn(&mut S) + Send + Sync + 'static>;
@@ -22,7 +22,11 @@ pub struct NatsKvStateStore<S> {
 
 impl<S> NatsKvStateStore<S> {
     pub fn new(kv: async_nats::jetstream::kv::Store, instance_key: impl Into<String>) -> Self {
-        Self { kv, key: instance_key.into(), _marker: std::marker::PhantomData }
+        Self {
+            kv,
+            key: instance_key.into(),
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -41,7 +45,9 @@ where
     async fn update_cas(&self, mutator: StateMutator<S>) -> anyhow::Result<S> {
         for _ in 0..10 {
             let (mut current, rev) = match self.kv.entry(&self.key).await? {
-                Some(e) if !e.value.is_empty() => (serde_json::from_slice::<S>(&e.value)?, e.revision),
+                Some(e) if !e.value.is_empty() => {
+                    (serde_json::from_slice::<S>(&e.value)?, e.revision)
+                }
                 _ => (S::default(), 0),
             };
             mutator(&mut current);
@@ -67,7 +73,9 @@ pub struct InMemoryStateStore<S> {
 
 impl<S: Default> InMemoryStateStore<S> {
     pub fn new(initial: S) -> Self {
-        Self { inner: Mutex::new(initial) }
+        Self {
+            inner: Mutex::new(initial),
+        }
     }
 }
 

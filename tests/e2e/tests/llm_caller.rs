@@ -1,7 +1,7 @@
 use contracts::{ILlmCallerService, ImageInput, LlmCallRequest, LlmCallerEndpoint};
-use e2e::TestEnv;
 use e2e::fake_openai::FakeOpenAi;
-use llm_caller::{Config, DriverKind, LlmCallerHandler, LlmInstanceState, build_driver};
+use e2e::TestEnv;
+use llm_caller::{build_driver, Config, DriverKind, LlmCallerHandler, LlmInstanceState};
 use sdk::ProgressSender;
 use std::sync::Arc;
 
@@ -32,7 +32,10 @@ async fn llm_caller_invokes_http_driver_and_updates_cas_state() -> anyhow::Resul
                 system_prompt: "You are helpful".into(),
                 text_prompt: "Context".into(),
                 user_prompt: "What is in this picture?".into(),
-                images: vec![ImageInput { data: vec![1, 2, 3, 4], mime_type: "image/png".into() }],
+                images: vec![ImageInput {
+                    data: vec![1, 2, 3, 4],
+                    mime_type: "image/png".into(),
+                }],
             },
             ProgressSender::noop(),
         )

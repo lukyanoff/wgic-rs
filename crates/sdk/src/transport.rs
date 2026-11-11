@@ -1,8 +1,8 @@
 use crate::wire::StreamFrame;
 use async_trait::async_trait;
 use contracts::{
-    ClientRegistry, ILlmCallerService, ISensorService, LlmCallRequest, LlmCallResponse, ProgressSender, RawRpcEndpoint,
-    RpcError, SensorCaptureRequest, SensorCaptureResponse,
+    ClientRegistry, ILlmCallerService, ISensorService, LlmCallRequest, LlmCallResponse,
+    ProgressSender, RawRpcEndpoint, RpcError, SensorCaptureRequest, SensorCaptureResponse,
 };
 use futures::StreamExt;
 use prost::Message;
@@ -25,7 +25,12 @@ pub struct NatsRpcClient {
 
 impl NatsRpcClient {
     pub fn new(nc: async_nats::Client, module: impl Into<String>, instance: impl Into<String>) -> Self {
-        Self { nc, module: module.into(), instance: instance.into(), timeout: Duration::from_secs(60) }
+        Self {
+            nc,
+            module: module.into(),
+            instance: instance.into(),
+            timeout: Duration::from_secs(60),
+        }
     }
 
     pub async fn call<Req, Res>(
@@ -41,7 +46,11 @@ impl NatsRpcClient {
     {
         let subject = rpc_subject(&self.module, &self.instance, service, method);
         let inbox = self.nc.new_inbox();
-        let mut sub = self.nc.subscribe(inbox.clone()).await.map_err(|e| RpcError::internal(e.to_string()))?;
+        let mut sub = self
+            .nc
+            .subscribe(inbox.clone())
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?;
 
         let payload = req.encode_to_vec();
         self.nc
@@ -96,7 +105,11 @@ pub struct NatsLlmCallerClient(pub NatsRpcClient);
 
 #[async_trait]
 impl ILlmCallerService for NatsLlmCallerClient {
-    async fn call(&self, req: LlmCallRequest, progress: ProgressSender) -> Result<LlmCallResponse, RpcError> {
+    async fn call(
+        &self,
+        req: LlmCallRequest,
+        progress: ProgressSender,
+    ) -> Result<LlmCallResponse, RpcError> {
         self.0.call("llm_caller.v1.LlmCallerService", "Call", &req, &progress).await
     }
 }
@@ -105,9 +118,7 @@ pub struct NatsSensorRegistry {
     nc: async_nats::Client,
 }
 impl NatsSensorRegistry {
-    pub fn new(nc: async_nats::Client) -> Self {
-        Self { nc }
-    }
+    pub fn new(nc: async_nats::Client) -> Self { Self { nc } }
 }
 impl ClientRegistry<dyn ISensorService> for NatsSensorRegistry {
     fn get(&self, target: &str) -> Result<Arc<dyn ISensorService>, RpcError> {
@@ -120,9 +131,7 @@ pub struct NatsLlmRegistry {
     nc: async_nats::Client,
 }
 impl NatsLlmRegistry {
-    pub fn new(nc: async_nats::Client) -> Self {
-        Self { nc }
-    }
+    pub fn new(nc: async_nats::Client) -> Self { Self { nc } }
 }
 impl ClientRegistry<dyn ILlmCallerService> for NatsLlmRegistry {
     fn get(&self, target: &str) -> Result<Arc<dyn ILlmCallerService>, RpcError> {

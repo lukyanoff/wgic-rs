@@ -1,5 +1,5 @@
-use axum::{Json, Router, routing::post};
-use serde_json::{Value, json};
+use axum::{routing::post, Json, Router};
+use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
 pub struct FakeOpenAi {
@@ -39,7 +39,10 @@ impl FakeOpenAi {
             let _ = axum::serve(listener, app).await;
         });
 
-        Self { url: format!("http://{addr}/v1/chat/completions"), handle }
+        Self {
+            url: format!("http://{addr}/v1/chat/completions"),
+            handle,
+        }
     }
 
     pub fn url(&self) -> String {

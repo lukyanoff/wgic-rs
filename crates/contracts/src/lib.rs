@@ -79,7 +79,12 @@ impl<T: ?Sized + Send + Sync> ClientRegistry<T> for MapRegistry<T> {
 pub trait RawRpcEndpoint: Send + Sync + 'static {
     fn service_name(&self) -> &'static str;
     fn methods(&self) -> &'static [&'static str];
-    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError>;
+    async fn dispatch(
+        &self,
+        method: &str,
+        payload: &[u8],
+        progress: ProgressSender,
+    ) -> Result<Vec<u8>, RpcError>;
 }
 
 // ============================================================================
@@ -138,7 +143,11 @@ pub struct LlmCallResponse {
 
 #[async_trait]
 pub trait ILlmCallerService: Send + Sync + 'static {
-    async fn call(&self, req: LlmCallRequest, progress: ProgressSender) -> Result<LlmCallResponse, RpcError>;
+    async fn call(
+        &self,
+        req: LlmCallRequest,
+        progress: ProgressSender,
+    ) -> Result<LlmCallResponse, RpcError>;
 }
 
 // --- Visioner Contract ---
@@ -183,17 +192,19 @@ pub struct SensorEndpoint<T: ISensorService>(pub Arc<T>);
 
 #[async_trait]
 impl<T: ISensorService> RawRpcEndpoint for SensorEndpoint<T> {
-    fn service_name(&self) -> &'static str {
-        "sensor.v1.SensorService"
-    }
-    fn methods(&self) -> &'static [&'static str] {
-        &["Capture"]
-    }
+    fn service_name(&self) -> &'static str { "sensor.v1.SensorService" }
+    fn methods(&self) -> &'static [&'static str] { &["Capture"] }
 
-    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError> {
+    async fn dispatch(
+        &self,
+        method: &str,
+        payload: &[u8],
+        progress: ProgressSender,
+    ) -> Result<Vec<u8>, RpcError> {
         match method {
             "Capture" => {
-                let req = SensorCaptureRequest::decode(payload).map_err(|e| RpcError::invalid_arg(e.to_string()))?;
+                let req = SensorCaptureRequest::decode(payload)
+                    .map_err(|e| RpcError::invalid_arg(e.to_string()))?;
                 let res = self.0.capture(req, progress).await?;
                 Ok(res.encode_to_vec())
             }
@@ -206,17 +217,19 @@ pub struct LlmCallerEndpoint<T: ILlmCallerService>(pub Arc<T>);
 
 #[async_trait]
 impl<T: ILlmCallerService> RawRpcEndpoint for LlmCallerEndpoint<T> {
-    fn service_name(&self) -> &'static str {
-        "llm_caller.v1.LlmCallerService"
-    }
-    fn methods(&self) -> &'static [&'static str] {
-        &["Call"]
-    }
+    fn service_name(&self) -> &'static str { "llm_caller.v1.LlmCallerService" }
+    fn methods(&self) -> &'static [&'static str] { &["Call"] }
 
-    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError> {
+    async fn dispatch(
+        &self,
+        method: &str,
+        payload: &[u8],
+        progress: ProgressSender,
+    ) -> Result<Vec<u8>, RpcError> {
         match method {
             "Call" => {
-                let req = LlmCallRequest::decode(payload).map_err(|e| RpcError::invalid_arg(e.to_string()))?;
+                let req = LlmCallRequest::decode(payload)
+                    .map_err(|e| RpcError::invalid_arg(e.to_string()))?;
                 let res = self.0.call(req, progress).await?;
                 Ok(res.encode_to_vec())
             }
@@ -229,17 +242,19 @@ pub struct VisionerEndpoint<T: IVisionerService>(pub Arc<T>);
 
 #[async_trait]
 impl<T: IVisionerService> RawRpcEndpoint for VisionerEndpoint<T> {
-    fn service_name(&self) -> &'static str {
-        "visioner.v1.VisionerService"
-    }
-    fn methods(&self) -> &'static [&'static str] {
-        &["Capture"]
-    }
+    fn service_name(&self) -> &'static str { "visioner.v1.VisionerService" }
+    fn methods(&self) -> &'static [&'static str] { &["Capture"] }
 
-    async fn dispatch(&self, method: &str, payload: &[u8], progress: ProgressSender) -> Result<Vec<u8>, RpcError> {
+    async fn dispatch(
+        &self,
+        method: &str,
+        payload: &[u8],
+        progress: ProgressSender,
+    ) -> Result<Vec<u8>, RpcError> {
         match method {
             "Capture" => {
-                let req = VisionCaptureRequest::decode(payload).map_err(|e| RpcError::invalid_arg(e.to_string()))?;
+                let req = VisionCaptureRequest::decode(payload)
+                    .map_err(|e| RpcError::invalid_arg(e.to_string()))?;
                 let res = self.0.capture(req, progress).await?;
                 Ok(res.encode_to_vec())
             }

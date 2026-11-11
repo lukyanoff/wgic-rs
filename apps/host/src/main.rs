@@ -53,7 +53,9 @@ async fn main() -> anyhow::Result<()> {
             let state = Arc::new(NatsKvStateStore::new(kv, state_key));
             let sensors = Arc::new(NatsSensorRegistry::new(nc.clone()));
             let llms = Arc::new(NatsLlmRegistry::new(nc.clone()));
-            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(cfg, state, sensors, llms))))
+            Arc::new(VisionerEndpoint(Arc::new(visioner::VisionerHandler::new(
+                cfg, state, sensors, llms,
+            ))))
         }
         other => anyhow::bail!("unknown module: {other}"),
     };

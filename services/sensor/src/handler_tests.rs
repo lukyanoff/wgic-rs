@@ -8,7 +8,10 @@ async fn sensor_handler_captures_fake_frame_and_updates_cas_state() {
     let handler = SensorHandler::new(Arc::new(FakeDriver), state.clone());
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let res = handler.capture(SensorCaptureRequest {}, ProgressSender::new(tx)).await.unwrap();
+    let res = handler
+        .capture(SensorCaptureRequest {}, ProgressSender::new(tx))
+        .await
+        .unwrap();
 
     assert_eq!(res.mime_type, "image/png");
     assert!(!res.data.is_empty());

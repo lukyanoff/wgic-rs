@@ -1,7 +1,7 @@
 use super::*;
 use contracts::{LlmCallResponse, SensorCaptureResponse};
-use sdk::MapRegistry;
 use sdk::state::InMemoryStateStore;
+use sdk::MapRegistry;
 use std::collections::HashMap;
 
 struct FakeSensor;
@@ -13,17 +13,27 @@ impl ISensorService for FakeSensor {
         progress: ProgressSender,
     ) -> Result<SensorCaptureResponse, RpcError> {
         progress.report("sensor click");
-        Ok(SensorCaptureResponse { data: vec![0x89, 0x50, 0x4E, 0x47], mime_type: "image/png".into() })
+        Ok(SensorCaptureResponse {
+            data: vec![0x89, 0x50, 0x4E, 0x47],
+            mime_type: "image/png".into(),
+        })
     }
 }
 
 struct FakeLlm;
 #[async_trait]
 impl ILlmCallerService for FakeLlm {
-    async fn call(&self, req: LlmCallRequest, progress: ProgressSender) -> Result<LlmCallResponse, RpcError> {
+    async fn call(
+        &self,
+        req: LlmCallRequest,
+        progress: ProgressSender,
+    ) -> Result<LlmCallResponse, RpcError> {
         progress.report("llm thinking");
         assert_eq!(req.images.len(), 1);
-        Ok(LlmCallResponse { text: format!("described: {}", req.user_prompt), model: "fake-gpt".into() })
+        Ok(LlmCallResponse {
+            text: format!("described: {}", req.user_prompt),
+            model: "fake-gpt".into(),
+        })
     }
 }
 
@@ -50,7 +60,10 @@ async fn capture_runs_pipeline_and_updates_cas_state() {
     );
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let resp = handler.capture(VisionCaptureRequest::default(), ProgressSender::new(tx)).await.unwrap();
+    let resp = handler
+        .capture(VisionCaptureRequest::default(), ProgressSender::new(tx))
+        .await
+        .unwrap();
 
     assert_eq!(resp.text, "described: what is on my desk?");
     assert_eq!(resp.model, "fake-gpt");
@@ -64,5 +77,14 @@ async fn capture_runs_pipeline_and_updates_cas_state() {
     while let Ok(step) = rx.try_recv() {
         steps.push(step);
     }
-    assert_eq!(steps, vec!["capturing image from cam1", "sensor click", "calling LLM agy", "llm thinking", "done"]);
+    assert_eq!(
+        steps,
+        vec![
+            "capturing image from cam1",
+            "sensor click",
+            "calling LLM agy",
+            "llm thinking",
+            "done"
+        ]
+    );
 }

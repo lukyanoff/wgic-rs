@@ -37,7 +37,9 @@ impl StreamFrame {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RpcError> {
-        let (&kind, rest) = bytes.split_first().ok_or_else(|| RpcError::internal("empty stream frame"))?;
+        let (&kind, rest) = bytes
+            .split_first()
+            .ok_or_else(|| RpcError::internal("empty stream frame"))?;
         match kind {
             KIND_PROGRESS => Ok(Self::Progress(String::from_utf8_lossy(rest).into_owned())),
             KIND_OK => Ok(Self::Ok(rest.to_vec())),
@@ -49,7 +51,10 @@ impl StreamFrame {
                     "not_found" => "not_found",
                     _ => "internal",
                 };
-                Ok(Self::Err(RpcError { code: static_code, message: msg.to_string() }))
+                Ok(Self::Err(RpcError {
+                    code: static_code,
+                    message: msg.to_string(),
+                }))
             }
             other => Err(RpcError::internal(format!("unknown frame kind: {other:#x}"))),
         }

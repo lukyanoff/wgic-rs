@@ -1,8 +1,8 @@
 pub mod fake_openai;
 
-use sdk::RawRpcEndpoint;
 use sdk::state::{IStateStore, NatsKvStateStore};
-use sdk::transport::{NatsLlmCallerClient, NatsRpcClient, NatsSensorClient, serve_endpoint};
+use sdk::transport::{serve_endpoint, NatsLlmCallerClient, NatsRpcClient, NatsSensorClient};
+use sdk::RawRpcEndpoint;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -15,7 +15,8 @@ pub struct TestEnv {
 
 impl TestEnv {
     pub async fn connect() -> anyhow::Result<Self> {
-        let nats_url = std::env::var("WGIC_NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
+        let nats_url = std::env::var("WGIC_NATS_URL")
+            .unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
         let nc = async_nats::connect(&nats_url).await?;
         let js = async_nats::jetstream::new(nc.clone());
 
@@ -28,7 +29,12 @@ impl TestEnv {
             .await?;
 
         let short_id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
-        Ok(Self { nc, kv, prefix: format!("e2e_{short_id}"), handles: Vec::new() })
+        Ok(Self {
+            nc,
+            kv,
+            prefix: format!("e2e_{short_id}"),
+            handles: Vec::new(),
+        })
     }
 
     pub fn instance_name(&self, base: &str) -> String {
@@ -37,9 +43,18 @@ impl TestEnv {
 
     pub fn state_store<S>(&self, module: &str, instance: &str) -> Arc<dyn IStateStore<S>>
     where
-        S: serde::Serialize + serde::de::DeserializeOwned + Clone + Default + Send + Sync + 'static,
+        S: serde::Serialize
+            + serde::de::DeserializeOwned
+            + Clone
+            + Default
+            + Send
+            + Sync
+            + 'static,
     {
-        Arc::new(NatsKvStateStore::new(self.kv.clone(), format!("{module}.{instance}")))
+        Arc::new(NatsKvStateStore::new(
+            self.kv.clone(),
+            format!("{module}.{instance}"),
+        ))
     }
 
     pub async fn mount_endpoint(
